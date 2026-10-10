@@ -13,6 +13,9 @@ from pathlib import Path
 import bpy
 
 
+FALLBACK_BASE_SIZE = 256
+
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
@@ -217,15 +220,18 @@ def fallback_base_image(
     if image is None:
         image = bpy.data.images.new(
             name,
-            width=1,
-            height=1,
+            width=FALLBACK_BASE_SIZE,
+            height=FALLBACK_BASE_SIZE,
             alpha=True,
         )
+    elif tuple(image.size) != (FALLBACK_BASE_SIZE, FALLBACK_BASE_SIZE):
+        image.scale(FALLBACK_BASE_SIZE, FALLBACK_BASE_SIZE)
     color = list(material.diffuse_color)[:3]
     if len(color) < 3:
         color = [1.0, 1.0, 1.0]
     image.pixels.foreach_set(
         [color[0], color[1], color[2], 1.0]
+        * (FALLBACK_BASE_SIZE * FALLBACK_BASE_SIZE)
     )
     image.filepath_raw = str(path)
     image.file_format = "PNG"

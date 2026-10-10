@@ -29,6 +29,7 @@ import re6_material_textures
 
 MOD_COLLECTION_TYPE = "RE6_MOD_COLLECTION"
 DEFAULT_MAX_SIZE = 2048
+FALLBACK_BASE_SIZE = 256
 
 
 def parse_args() -> argparse.Namespace:
@@ -125,11 +126,16 @@ def fallback_outline_image(
     if image is None:
         image = bpy.data.images.new(
             "Outline_fallback",
-            width=1,
-            height=1,
+            width=FALLBACK_BASE_SIZE,
+            height=FALLBACK_BASE_SIZE,
             alpha=True,
         )
-    image.pixels.foreach_set([0.0, 0.0, 0.0, 1.0])
+    elif tuple(image.size) != (FALLBACK_BASE_SIZE, FALLBACK_BASE_SIZE):
+        image.scale(FALLBACK_BASE_SIZE, FALLBACK_BASE_SIZE)
+    image.pixels.foreach_set(
+        [0.0, 0.0, 0.0, 1.0]
+        * (FALLBACK_BASE_SIZE * FALLBACK_BASE_SIZE)
+    )
     image.filepath_raw = str(path)
     image.file_format = "PNG"
     image.save()
@@ -282,6 +288,15 @@ def main() -> int:
     failures = []
     for material in materials:
         image = base_color_image(material)
+        if (
+            image is not None
+            and image.name.endswith("_fallback")
+            and tuple(image.size) != (
+                FALLBACK_BASE_SIZE,
+                FALLBACK_BASE_SIZE,
+            )
+        ):
+            image.scale(FALLBACK_BASE_SIZE, FALLBACK_BASE_SIZE)
         if image is None:
             image = fallback_outline_image(
                 material,

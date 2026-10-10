@@ -82,6 +82,9 @@ Blender 5.2 itself is the only external runtime.
   BC3 DXT5nm and at most 2048. Materials without a normal map share
   `Null_NM.tex` converted from
   [assets/RE6/Null_NM.dds](assets/RE6/Null_NM.dds).
+- Materials without a source Base Color image use a generated flat-color
+  `256x256` fallback. The outline material uses a generated black `256x256`
+  fallback. Both are encoded as BC1 like every other base color texture.
 - Stage 8 writes only the `.ctc`; reuse the reference `.ccl`. The angle limit
   interpolates from 15 degrees at the first node to 60 degrees at the last.
   Build the chains as RE6 Model Editor CTC objects and export them with

@@ -137,6 +137,8 @@ Run `scripts/prepare_re6_texture_stage.py`.
 1. Reduce every base color image by 40 percent: multiply RGB by `0.6` and
    leave alpha unchanged. Apply the reduction only once per shared image.
 2. Scale base color images to at most 2048 on either axis and encode BC1.
+   Materials without a source Base Color image use a generated flat-color
+   `256x256` fallback; the outline material uses a black `256x256` fallback.
 3. Write `<material>_BM.tex` under the `.mrl` texture directory.
 4. Convert a source normal image to DXT5nm BC3 as `<material>_NM.tex`.
 5. If a material has no normal image, write one shared `Null_NM.tex` from
