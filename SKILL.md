@@ -11,6 +11,9 @@ This skill builds one Resident Evil 6 replacement for the Ada slot `pl0600`.
 The target model is a single body mesh that contains face, hair, clothing, and
 body materials. It does not split the model into body, face, and hair files.
 
+For download, installation, and manual usage instructions, see
+[README.md](README.md).
+
 The workflow is defined in [agents/WORKFLOW.md](agents/WORKFLOW.md). Low-token
 execution is the default and is described in
 [references/low-token-mode.md](references/low-token-mode.md) and

@@ -3,11 +3,16 @@ __pycache__/
 
 .vscode/
 .idea/
+.venv/
+venv/
 
 *.blend1
 *.blend2
 *.bak
 *.tmp
+*.zip
+
+dist/
 
 .DS_Store
 Thumbs.db
