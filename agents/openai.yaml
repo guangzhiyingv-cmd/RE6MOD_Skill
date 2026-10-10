@@ -1,0 +1,7 @@
+interface:
+  display_name: "RE6 Mod Auto"
+  short_description: "Turn character models into RE6 replacements"
+  default_prompt: "Use $re6-mod-auto to turn this source character model into a finished Resident Evil 6 pl0600 Ada replacement mod."
+
+policy:
+  allow_implicit_invocation: true

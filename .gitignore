@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+
+.vscode/
+.idea/
+
+*.blend1
+*.blend2
+*.bak
+*.tmp
+
+.DS_Store
+Thumbs.db

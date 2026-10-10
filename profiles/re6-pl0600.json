@@ -1,0 +1,245 @@
+{
+  "profile_id": "re6-pl0600-ada",
+  "status": "draft",
+  "validation_scope": "Resident Evil 6 single-body pl0600 (Ada) replacement workflow",
+  "game": "re6",
+  "target_character": "ada",
+  "target_character_display": "Ada",
+  "target_characters": [
+    "ada"
+  ],
+  "target_slot": "pl0600",
+  "alignment_preset": "RE6.json",
+  "target_skeleton": {
+    "source": "re6_mod",
+    "model": "assets/RE6/pl0600.mod"
+  },
+  "source_format": "pmx",
+  "part_names": [
+    "body"
+  ],
+  "part_output_names": {
+    "body": "00_Body"
+  },
+  "blender": {
+    "executable": "D:\\steam\\steamapps\\common\\Blender\\blender.exe",
+    "version": "5.2"
+  },
+  "addons": [
+    "mmd_tools",
+    "re6_model_editor"
+  ],
+  "required_assets": [
+    "assets/RE6/pl0600.mod",
+    "assets/RE6/pl0600_0.mrl",
+    "assets/RE6/Null_NM.dds",
+    "assets/RE6/pl0600.ccl",
+    "assets/RE6/pl0600.ctc",
+    "assets/RE6/RE6.json",
+    "assets/RE6/Tools/re6_model_editor-0.3.0",
+    "assets/RE6/Tools/RE6 SideLoader",
+    "assets/RE6/Tools/RE6_SideloadConverter",
+    "assets/RE6/Tools/RE6-ARC-Studio/RE6-ARC-Studio.exe",
+    "assets/RE6/参考标准mod/RE6 Shinano Official"
+  ],
+  "reference_assets": {
+    "model_template": "assets/RE6/pl0600.mod",
+    "mrl_template": "assets/RE6/pl0600_0.mrl",
+    "null_normal_dds": "assets/RE6/Null_NM.dds",
+    "collision_template": "assets/RE6/pl0600.ccl",
+    "chain_template": "assets/RE6/pl0600.ctc",
+    "bone_semantics": "assets/RE6/RE6.json",
+    "reference_mod": "assets/RE6/参考标准mod/RE6 Shinano Official",
+    "model_editor_addon": "assets/RE6/Tools/re6_model_editor-0.3.0",
+    "sideloader": "assets/RE6/Tools/RE6 SideLoader",
+    "sideload_converter": "assets/RE6/Tools/RE6_SideloadConverter",
+    "arc_tool": "assets/RE6/Tools/RE6-ARC-Studio/RE6-ARC-Studio.exe"
+  },
+  "operators": {
+    "import_model": "re6_mod.import_re6_mod",
+    "export_model": "re6_mod.export_re6_mod",
+    "create_mod_collection": "re6_mod.create_mod_collection",
+    "rename_meshes": "re6_mod.rename_meshes",
+    "set_mesh_group_id": "re6_mod.set_mesh_group_id",
+    "remove_empty_vertex_groups": "re6_mod.remove_empty_vertex_groups",
+    "limit_total_normalize": "re6_mod.limit_total_normalize",
+    "import_mrl": "re6_mrl.import_re6_mrl",
+    "export_mrl": "re6_mrl.export_re6_mrl",
+    "add_missing_materials": "re6_mrl.add_missing_materials",
+    "import_ctc": "re6_ctc.import_re6_ctc",
+    "export_ctc": "re6_ctc.export_re6_ctc",
+    "create_chain_from_bone": "re6_ctc.create_chain_from_bone",
+    "import_ccl": "re6_ccl.import_re6_ccl",
+    "export_ccl": "re6_ccl.export_re6_ccl",
+    "convert_tex_directory": "re6_tex.convert_tex_directory",
+    "export_model_textures": "re6_tex.export_model_textures"
+  },
+  "mod_output": {
+    "mod_root_name_pattern": "<mod-name>_<target-character>",
+    "native_pc_dir": "nativePC_mod",
+    "model_dir": "nativePC_mod/data/chara/pl/pl0600/model",
+    "texture_dir": "nativePC_mod/data/chara/pl/pl0600",
+    "model_file": "pl0600.mod",
+    "material_file": "pl0600.mrl",
+    "chain_file": "pl0600.ctc",
+    "collision_file": "pl0600.ccl",
+    "modinfo_template": null,
+    "sideloader_required": true
+  },
+  "prepared_collections": {
+    "body": "pl0600.mod"
+  },
+  "alignment": {
+    "mode": "shoulder",
+    "template_model": "assets/RE6/pl0600.mod",
+    "bone_semantics": "assets/RE6/RE6.json",
+    "reference_bones": [
+      "clavicle_L",
+      "clavicle_R"
+    ],
+    "point": "head",
+    "tolerance": 0.1
+  },
+  "finger_cleanup": {
+    "enabled": true,
+    "angle_degrees": 20.0,
+    "axis": "X",
+    "sign": "mirrored",
+    "keep_bones": [
+      "thumb_01_L",
+      "thumb_01_R"
+    ]
+  },
+  "cylindrical_face_normals": {
+    "stage": "stage_1"
+  },
+  "mrl": {
+    "texture_dir": "data/chara/pl/pl0600/gzyv",
+    "texture_prefix": "",
+    "template_mrl": "assets/RE6/pl0600_0.mrl",
+    "template_material": "68b3d093",
+    "albedo_slot": "cd06f347",
+    "normal_slot": "2266034a",
+    "preserved_texture_slots": [
+      "57c1c3d5",
+      "0ed1b35a"
+    ],
+    "null_normal_texture": "data/chara/pl/pl0600/gzyv/Null_NM"
+  },
+  "texture": {
+    "compression": "BC1",
+    "max_size": 2048,
+    "normal_max_size": 2048,
+    "base_brightness_reduction_percent": 40,
+    "null_normal_dds": "assets/RE6/Null_NM.dds"
+  },
+  "ctc": {
+    "node": {
+      "angle_limit_start_degrees": 15.0,
+      "angle_limit_end_degrees": 60.0,
+      "collision_radius": 2.5,
+      "collision_shape": 1
+    },
+    "chain": {
+      "damping": 0.1,
+      "limit_force": 100.0,
+      "col_group": 1
+    }
+  },
+  "export": {
+    "reference_mod_root": "assets/RE6/参考标准mod/RE6 Shinano Official",
+    "ccl_source": "assets/RE6/参考标准mod/RE6 Shinano Official/nativePC_mod/data/chara/pl/pl0600/model/pl0600.ccl",
+    "mrl_filenames": [
+      "pl0600_0.mrl",
+      "pl0600_1.mrl",
+      "pl0600_2.mrl"
+    ],
+    "modinfo": {
+      "author": "GZYV",
+      "version": "1.0",
+      "description": "Require RE6 SideLoader.",
+      "category": "!Characters > Ada"
+    }
+  },
+  "physics_chains": {
+    "priority": [
+      "Hair",
+      "Skirt",
+      "Breast"
+    ],
+    "categories": {
+      "Skirt": [
+        "ClothSkirt",
+        "ClothSkir",
+        "ClothHuan",
+        "ClothSH",
+        "スカート"
+      ],
+      "Sleeves": [
+        "ClothSleeve",
+        "ClothSleev",
+        "ClothFlower"
+      ],
+      "Cloak": [
+        "clothes_cloak",
+        "ClothesCloak",
+        "cloak"
+      ],
+      "Hair": [
+        "Hair",
+        "hair"
+      ],
+      "Ears": [
+        "HeadEar",
+        "HeadEarring"
+      ],
+      "Breast": [
+        "胸",
+        "Breast"
+      ]
+    },
+    "excluded": [
+      "_dummy_",
+      "_shadow_",
+      "調整",
+      "ＩＫ",
+      "IK",
+      "両目",
+      "目."
+    ]
+  },
+  "prepared_armatures": {
+    "body": "pl0600.mod"
+  },
+  "prepared_meshes": {
+    "body": "pl0600_Body"
+  },
+  "resource_versions": null,
+  "texture_packaging": {
+    "mode": "loose",
+    "conversion_target": "re6",
+    "disk_resource_suffix_required": false,
+    "mod_root_name_pattern": "<mod-name>_<target-character>",
+    "texture_slots": [
+      "BM",
+      "NM",
+      "MM"
+    ]
+  },
+  "unresolved": [
+    "Source-to-RE6 bone renaming beyond the alignment semantics in RE6.json is not yet defined.",
+    "Mesh object naming for the single body (Group_<g>_Sub_<k>__<material>) and its group ids.",
+    "Texture slot semantics (BM/NM/MM) and whether an emissive binding applies.",
+    "Chain (.ctc) and collision (.ccl) authoring rules for the single-body model.",
+    "Automatic export verification strategy for .mod/.mrl/.ctc/.ccl."
+  ],
+  "decisions": [
+    "The game's pl0600_0 / pl0600_1 / pl0600_2 .mrl files share the same six materials and command structure but use different costume texture tables; pl0600_0.mrl is the default template.",
+    "The vanilla pl_skin material 68b3d093 is the Stage 6 command template; its albedo slot is rebound and all other texture slots are left empty.",
+    "Normal maps use 2266034a: source normal images are converted to per-material _NM BC3 textures, while materials without one share Null_NM.tex converted from assets/RE6/Null_NM.dds. The detail-normal and albedo-blend slots stay empty.",
+    "Every base color image has its RGB multiplied by 0.6, a 40 percent brightness reduction, before BC1 encoding.",
+    "Material output follows the reference mod: the .mrl contains only mod-specific albedo and normal materials, and the .mod may also list target-owned material hashes.",
+    "pl0601.mod / pl0602.mod / pl0603.mod and event/face/pl0600/cs_pl0600*.mod are exported untouched.",
+    "Target is locked to slot pl0600 (Ada) with a single body part."
+  ]
+}
