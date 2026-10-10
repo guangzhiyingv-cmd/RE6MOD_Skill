@@ -24,7 +24,7 @@ class Re6GamePathPG(bpy.types.PropertyGroup):
     path: StringProperty(
         name='Path', subtype='DIR_PATH', default='',
         description='Set the path to the folder that contains nativePC: the game folder or an extracted mod folder.'
-                    '\nThis determines where textures and material libraries will be imported from.'
+                    '\nThis determines where textures will be imported from (the exact texture path below each of these folders).'
                     '\nExample: D:\\RE6_EXTRACT or D:\\SteamLibrary\\steamapps\\common\\RE6')
 
 
@@ -166,6 +166,9 @@ class Re6Preferences(bpy.types.AddonPreferences):
     # Default export options
     default_selectedOnly: BoolProperty(name='Only Selected Meshes', description='Only export selected meshes', default=False)
     default_visibleOnly: BoolProperty(name='Only Visible Meshes', description='Only export visible meshes', default=False)
+    default_allowDuplicateBoneNames: BoolProperty(
+        name='Allow Duplicate Bone Names', default=False,
+        description='Accept bones named like "RE6Bone_050.001" and write the id before the ".001"')
     default_exportAllLODs: BoolProperty(
         name='Export All LODs',
         description='Export all LODs. If disabled, only LOD0 will be exported. Note that LODs meshes must be grouped inside '
@@ -297,7 +300,7 @@ class Re6Preferences(bpy.types.AddonPreferences):
         if self.showModExportOptions:
             box = layout.box()
             rows(box.column(align=True), ('default_selectedOnly', 'default_visibleOnly', 'default_useBlenderMaterialName',
-                                          'default_shadowMode'))
+                                          'default_shadowMode', 'default_allowDuplicateBoneNames'))
 
         header('showCTCVisibilityOptions', 'CTC Visibility Options')
         if self.showCTCVisibilityOptions:

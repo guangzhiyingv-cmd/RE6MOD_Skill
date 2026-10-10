@@ -7,6 +7,8 @@ from pathlib import Path
 import bpy
 from mathutils import Matrix
 
+import internal_deps
+
 
 FORMAT_ADAPTERS = {
     "pmx": "mmd",
@@ -38,29 +40,12 @@ def adapter_for_source(
         ) from error
 
 
-def enable_addon(module: str) -> None:
-    result = bpy.ops.preferences.addon_enable(module=module)
-    if "CANCELLED" in result:
-        raise RuntimeError(f"Could not enable addon: {module}")
-
-
 def ensure_mmd_tools() -> None:
     if hasattr(bpy.types, "MMD_TOOLS_OT_import_model"):
         return
-    errors = []
-    for module in (
-        "bl_ext.user_default.mmd_tools",
-        "mmd_tools",
-    ):
-        try:
-            enable_addon(module)
-            if hasattr(bpy.types, "MMD_TOOLS_OT_import_model"):
-                return
-        except RuntimeError as error:
-            errors.append(f"{module}: {error}")
-    raise RuntimeError(
-        "MMD Tools is not available. Tried: " + "; ".join(errors)
-    )
+    internal_deps.ensure_mmd_tools()
+    if not hasattr(bpy.types, "MMD_TOOLS_OT_import_model"):
+        raise RuntimeError("The internal MMD Tools add-on did not register.")
 
 
 def imported_objects(before: set[str]) -> list[bpy.types.Object]:

@@ -1,0 +1,433 @@
+import bpy
+import os
+
+from ...core.i18n import T
+from .weapon_data import WEAPON_TYPES, _load_weapon_sets, set_selected_weapon
+from .batch_export import _load_armor_sets, get_armor_entry
+
+WEAPON_TYPE_CODES = [t[0] for t in WEAPON_TYPES]
+
+
+# 扫描的装备目录（性别标识, 文件夹名）
+EQUIP_DIRS = [("f", "f_equip"), ("m", "m_equip")]
+
+# 支持的部位代码（扫描顺序也作为 UI 排序基准）
+PART_CODES = ["arm", "leg", "body", "helm", "wst"]
+
+# 扫描的文件扩展名
+SCAN_EXTS = {".mod3", ".mrl3", ".ctc"}
+
+# 武器无物理，仅扫描这两种
+WEAPON_SCAN_EXTS = {".mod3", ".mrl3"}
+
+PART_NAMES    = {
+    "arm":  "mhwi.batch_import.part_arm",
+    "leg":  "mhwi.batch_import.part_leg",
+    "body": "mhwi.batch_import.part_body",
+    "helm": "mhwi.batch_import.part_helm",
+    "wst":  "mhwi.batch_import.part_wst",
+}
+GENDER_LABELS = {"f": "mhwi.batch_import.gender_f", "m": "mhwi.batch_import.gender_m"}
+FT_ORDER      = ["mod3", "mrl3", "ctc"]
+
+
+# ── CollectionProperty 数据结构 ────────────────────────────────────
+
+class MHWI_ImportItem(bpy.types.PropertyGroup):
+    """代表一个待导入文件"""
+    filepath:  bpy.props.StringProperty()
+    group_key: bpy.props.StringProperty()   # model_id（装备）或武器主模型代码
+    gender:    bpy.props.StringProperty()   # "f" / "m"（武器为空）
+    part:      bpy.props.StringProperty()   # 装备: "arm"/"leg"/...；武器: 该文件自身的 model code
+    filetype:  bpy.props.StringProperty()   # "mod3" / "mrl3" / "ctc"
+    enabled:   bpy.props.BoolProperty(default=True)
+    kind:      bpy.props.StringProperty(default="armor")   # "armor" / "weapon"
+
+
+class MHWI_ImportGroup(bpy.types.PropertyGroup):
+    """代表一套装备/一件武器的 UI 折叠状态"""
+    group_key: bpy.props.StringProperty()   # model_id 或武器主模型代码
+    expanded:  bpy.props.BoolProperty(default=False)
+    kind:      bpy.props.StringProperty(default="armor")   # "armor" / "weapon"
+
+
+# ── 扫描 ──────────────────────────────────────────────────────────
+
+def scan_mhwi_folder(natives_root, scene):
+    """
+    扫描 nativePC/pl/{f,m}_equip/（装备）与 nativePC/wp/{type}/（武器）下的模型文件，
+    将结果写入 scene.mhwi_import_items 和 scene.mhwi_import_groups。
+    无需指定装备或武器，两种目录结构一律解析。
+    返回找到的文件总数。
+    """
+    items  = scene.mhwi_import_items
+    groups = scene.mhwi_import_groups
+    items.clear()
+    groups.clear()
+
+    seen_groups = set()   # 已添加到 groups 的 group_key
+
+    # ── 装备（护甲 / 幻化） ──
+    pl_dir = os.path.join(natives_root, "nativePC", "pl")
+    if os.path.isdir(pl_dir):
+        for gender, equip_folder in EQUIP_DIRS:
+            equip_dir = os.path.join(pl_dir, equip_folder)
+            if not os.path.isdir(equip_dir):
+                continue
+
+            for model_id in sorted(os.listdir(equip_dir)):
+                model_dir = os.path.join(equip_dir, model_id)
+                if not os.path.isdir(model_dir):
+                    continue
+
+                for part in PART_CODES:
+                    mod_dir = os.path.join(model_dir, part, "mod")
+                    if not os.path.isdir(mod_dir):
+                        continue
+
+                    for fname in sorted(os.listdir(mod_dir)):
+                        ext = os.path.splitext(fname)[1].lower()
+                        if ext not in SCAN_EXTS:
+                            continue
+
+                        if model_id not in seen_groups:
+                            g           = groups.add()
+                            g.group_key = model_id
+                            g.kind      = "armor"
+                            seen_groups.add(model_id)
+
+                        item           = items.add()
+                        item.filepath  = os.path.join(mod_dir, fname)
+                        item.group_key = model_id
+                        item.gender    = gender
+                        item.part      = part
+                        item.filetype  = ext[1:]   # ".mod3" → "mod3"
+                        item.enabled   = True
+                        item.kind      = "armor"
+
+    # ── 武器 ──
+    wp_dir = os.path.join(natives_root, "nativePC", "wp")
+    if os.path.isdir(wp_dir):
+        for weapon_type in WEAPON_TYPE_CODES:
+            type_dir = os.path.join(wp_dir, weapon_type)
+            if not os.path.isdir(type_dir):
+                continue
+
+            for main_code in sorted(os.listdir(type_dir)):
+                mod_dir = os.path.join(type_dir, main_code, "mod")
+                if not os.path.isdir(mod_dir):
+                    continue
+
+                for fname in sorted(os.listdir(mod_dir)):
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext not in WEAPON_SCAN_EXTS:
+                        continue
+
+                    if main_code not in seen_groups:
+                        g           = groups.add()
+                        g.group_key = main_code
+                        g.kind      = "weapon"
+                        seen_groups.add(main_code)
+
+                    item           = items.add()
+                    item.filepath  = os.path.join(mod_dir, fname)
+                    item.group_key = main_code
+                    item.gender    = ""
+                    item.part      = os.path.splitext(fname)[0]   # 该文件自身的 model code
+                    item.filetype  = ext[1:]
+                    item.enabled   = True
+                    item.kind      = "weapon"
+
+    # 只有一套装备/武器时默认展开
+    if len(groups) == 1:
+        groups[0].expanded = True
+
+    return len(items)
+
+
+# ── 辅助：Collection 管理 ─────────────────────────────────────────
+
+def _get_or_create_collection(name):
+    col = bpy.data.collections.get(name)
+    if not col:
+        col = bpy.data.collections.new(name)
+        bpy.context.scene.collection.children.link(col)
+    return col
+
+
+def _link_under(child_col, parent_col):
+    """把 child_col 移入 parent_col（如在场景根则先移除）"""
+    scene_root = bpy.context.scene.collection
+    child_names_in_root = {c.name for c in scene_root.children}
+    if child_col.name in child_names_in_root:
+        scene_root.children.unlink(child_col)
+    child_names_in_parent = {c.name for c in parent_col.children}
+    if child_col.name not in child_names_in_parent:
+        parent_col.children.link(child_col)
+
+
+def _resolve_target(col_name, parent_col):
+    """
+    如果 parent_col 下有与 col_name 去掉最后一段扩展名后同名的子集合，
+    返回该子集合作为更精确的嵌套目标，否则返回 parent_col 本身。
+    例: f_body070_0000.mrl3 → base=f_body070_0000 → 找到 parent_col 下的 f_body070_0000
+    """
+    base = col_name.rsplit(".", 1)[0] if "." in col_name else None
+    if base:
+        for child in parent_col.children:
+            if child.name == base:
+                return child
+    return parent_col
+
+
+# ── 辅助：导入后自动选中批量导出的目标 ──────────────────────────────
+
+def _auto_select_for_export(context, kind, group_key):
+    """
+    导入成功后，把 group_key 对应的装备/武器设为批量导出面板当前选中项，
+    省去导入完还要在导出面板里重新翻找同一件装备的步骤。
+    """
+    settings = context.scene.mhw_suite_settings
+
+    if kind == "armor":
+        data  = _load_armor_sets(settings.mhwi_armor_sets_file)
+        entry = get_armor_entry(data, group_key)
+        if entry is None:
+            # SP 幻化的 model_id 带性别前缀（f_/m_），扫描到的文件夹名不带
+            for prefix in ("f_", "m_"):
+                entry = get_armor_entry(data, prefix + group_key)
+                if entry:
+                    break
+        if entry is None:
+            return
+        rank = entry.get("rank", "HR")
+        settings.mhwi_export_mode = 'ARMOR'
+        settings.mhwi_rank_tab    = rank
+        if rank == "HR":
+            settings.mhwi_selected_hr_armor = entry["id"]
+        elif rank == "MR":
+            settings.mhwi_selected_mr_armor = entry["id"]
+        else:
+            settings.mhwi_selected_sp_armor = entry["id"]
+
+    else:  # weapon
+        data = _load_weapon_sets(settings.mhwi_weapon_sets_file)
+        entry = next((w for w in data.get("weapon_sets", []) if w["id"] == group_key), None) if data else None
+        if entry is None:
+            return
+        settings.mhwi_export_mode      = 'WEAPON'
+        settings.mhwi_weapon_type_tab  = entry["type"]
+        set_selected_weapon(context.scene, entry["type"], entry["id"])
+
+
+# ── Operators ─────────────────────────────────────────────────────
+
+class MHWI_OT_ScanImportFolder(bpy.types.Operator):
+    bl_idname  = "mhwi.scan_import_folder"
+    bl_label   = "Scan"
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def description(cls, context, properties):
+        return T("mhwi.batch_import.scan_desc")
+
+    def execute(self, context):
+        natives_root = context.scene.get("mhwi_natives_root", "")
+        if not natives_root or not os.path.isdir(natives_root):
+            self.report({'ERROR'}, T("mhwi.batch_import.set_mod_root_first"))
+            return {'CANCELLED'}
+        count = scan_mhwi_folder(natives_root, context.scene)
+        if count == 0:
+            self.report({'WARNING'}, T("mhwi.batch_import.no_files_found"))
+        else:
+            self.report({'INFO'}, T("mhwi.batch_import.scan_done").format(n=count))
+        return {'FINISHED'}
+
+
+class MHWI_OT_ToggleImportGroup(bpy.types.Operator):
+    bl_idname  = "mhwi.toggle_import_group"
+    bl_label   = "Toggle Import Group"
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def description(cls, context, properties):
+        return T("mhwi.batch_import.toggle_group_desc")
+
+    group_key: bpy.props.StringProperty()
+
+    def execute(self, context):
+        for g in context.scene.mhwi_import_groups:
+            if g.group_key == self.group_key:
+                g.expanded = not g.expanded
+                break
+        return {'FINISHED'}
+
+
+class MHWI_OT_SelectImportGroup(bpy.types.Operator):
+    bl_idname  = "mhwi.select_import_group"
+    bl_label   = "Select Import Group"
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def description(cls, context, properties):
+        return T("mhwi.batch_import.select_group_desc")
+
+    group_key: bpy.props.StringProperty()
+    value:     bpy.props.BoolProperty()
+
+    def execute(self, context):
+        for item in context.scene.mhwi_import_items:
+            if item.group_key == self.group_key:
+                item.enabled = self.value
+        return {'FINISHED'}
+
+
+class MHWI_OT_SelectAllImport(bpy.types.Operator):
+    bl_idname  = "mhwi.select_all_import"
+    bl_label   = "Select All Import"
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def description(cls, context, properties):
+        return T("mhwi.batch_import.select_all_desc")
+
+    value: bpy.props.BoolProperty()
+
+    def execute(self, context):
+        for item in context.scene.mhwi_import_items:
+            item.enabled = self.value
+        return {'FINISHED'}
+
+
+class MHWI_OT_BatchImport(bpy.types.Operator):
+    bl_idname  = "mhwi.batch_import"
+    bl_label   = "MHWI Batch Import"
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def description(cls, context, properties):
+        return T("mhwi.batch_import.batch_import_desc")
+
+    def execute(self, context):
+        if not (hasattr(bpy.ops, 'mhw_mod3') and hasattr(bpy.ops.mhw_mod3, 'import_mhw_mod3')):
+            self.report({'ERROR'}, T("mhwi.batch_import.model_editor_missing"))
+            return {'CANCELLED'}
+
+        items   = context.scene.mhwi_import_items
+        # 保证 mod3 → mrl3 → ctc 顺序，避免 CTC 在 MOD3 前导入导致物理绑定失败
+        enabled = sorted(
+            (it for it in items if it.enabled),
+            key=lambda x: FT_ORDER.index(x.filetype) if x.filetype in FT_ORDER else 99,
+        )
+        if not enabled:
+            self.report({'WARNING'}, T("mhwi.batch_import.no_items_selected"))
+            return {'CANCELLED'}
+
+        # 构建 (group_key, gender, part) → {filetype: filepath} 的配对映射
+        # 用于将同一部位的 mod3+mrl3 合并为单次 MOD3 联合导入，以正确解析材质名
+        from collections import defaultdict as _dd
+        pair_map = _dd(dict)
+        for it in enabled:
+            pair_map[(it.group_key, it.gender, it.part)][it.filetype] = it.filepath
+
+        # 已配对的 mrl3 路径集合（将随 mod3 联合导入，无需单独导入）
+        paired_mrl3_paths = {
+            ft_map["mrl3"]
+            for ft_map in pair_map.values()
+            if "mod3" in ft_map and "mrl3" in ft_map
+        }
+
+        def _do_import(filepath, mrl3_path=None):
+            directory = os.path.dirname(filepath) + os.sep
+            filename  = os.path.basename(filepath)
+            if mrl3_path:
+                bpy.ops.mhw_mod3.import_mhw_mod3(
+                    'EXEC_DEFAULT',
+                    directory=directory,
+                    files=[{"name": filename}],
+                    loadMrl3Data=True,
+                    mrl3Path=mrl3_path,
+                )
+            else:
+                ext = os.path.splitext(filepath)[1].lower().lstrip(".")
+                op_map = {
+                    "mod3": bpy.ops.mhw_mod3.import_mhw_mod3,
+                    "mrl3": bpy.ops.mhw_mrl3.import_mhw_mrl3,
+                    "ctc":  bpy.ops.mhw_ctc.import_mhw_ctc,
+                }
+                op_func = op_map.get(ext)
+                if op_func:
+                    op_func('EXEC_DEFAULT', directory=directory, files=[{"name": filename}])
+
+        ok = fail = 0
+        succeeded_groups = {}   # group_key -> kind，记录本次至少成功导入一个文件的装备/武器
+        for item in enabled:
+            # 已通过 mod3 联合导入的 mrl3，跳过
+            if item.filepath in paired_mrl3_paths:
+                ok += 1
+                succeeded_groups[item.group_key] = item.kind
+                print(f"[MHWI] Paired (via MOD3): {os.path.basename(item.filepath)}")
+                continue
+
+            parent_col = _get_or_create_collection(item.group_key)
+            mrl3_path  = None
+            if item.filetype == "mod3":
+                key = (item.group_key, item.gender, item.part)
+                mrl3_path = pair_map[key].get("mrl3")
+
+            try:
+                scene_root = bpy.context.scene.collection
+                before     = {c.name for c in bpy.data.collections}
+                _do_import(item.filepath, mrl3_path)
+                after      = {c.name for c in bpy.data.collections}
+                root_names = {c.name for c in scene_root.children}
+                for name in after - before:
+                    # 只移动落在场景根的顶层集合，importer 自行嵌套好的子集合跳过
+                    if name in root_names:
+                        col    = bpy.data.collections.get(name)
+                        target = _resolve_target(name, parent_col)
+                        if col:
+                            _link_under(col, target)
+                ok += 1
+                succeeded_groups[item.group_key] = item.kind
+                suffix = " (+MRL3)" if mrl3_path else ""
+                print(f"[MHWI] Imported{suffix}: {os.path.basename(item.filepath)}")
+            except Exception as e:
+                print(f"[MHWI] Import FAILED {item.filepath}: {e}")
+                fail += 1
+
+        # 按面板中的显示顺序逐个选中，最后一个成为导出面板当前激活的项
+        for g in context.scene.mhwi_import_groups:
+            if g.group_key in succeeded_groups:
+                _auto_select_for_export(context, succeeded_groups[g.group_key], g.group_key)
+
+        if fail:
+            self.report({'WARNING'}, T("mhwi.batch_import.import_done_with_fail").format(ok=ok, fail=fail))
+        else:
+            self.report({'INFO'}, T("mhwi.batch_import.import_done").format(ok=ok))
+        return {'FINISHED'}
+
+
+classes = [
+    MHWI_ImportItem,
+    MHWI_ImportGroup,
+    MHWI_OT_ScanImportFolder,
+    MHWI_OT_ToggleImportGroup,
+    MHWI_OT_SelectImportGroup,
+    MHWI_OT_SelectAllImport,
+    MHWI_OT_BatchImport,
+]
+
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    bpy.types.Scene.mhwi_import_items  = bpy.props.CollectionProperty(type=MHWI_ImportItem)
+    bpy.types.Scene.mhwi_import_groups = bpy.props.CollectionProperty(type=MHWI_ImportGroup)
+
+
+def unregister():
+    del bpy.types.Scene.mhwi_import_items
+    del bpy.types.Scene.mhwi_import_groups
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)

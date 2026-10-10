@@ -75,7 +75,11 @@ def remember(names):
         name = _plain(name)
         if not name:
             continue
-        h = H.jamcrc32(name)
+        try:
+            h = H.jamcrc32(name)
+        except UnicodeError as e:
+            print('\033[93mWARNING: cannot hash the material name %r, skipped: %s\033[0m' % (name, e))
+            continue
         if H.material_name(h) != name:
             H.learn(name)
             new += 1

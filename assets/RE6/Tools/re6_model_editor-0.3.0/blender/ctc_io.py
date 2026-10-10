@@ -48,7 +48,7 @@ def import_ctc(filepath, *, target=None, merge=None, load_ccl=True, warnings=Non
     tp = bpy.context.scene.re6_ctc_toolpanel
 
     # the chains that can be built: every node needs a bone of the armature, a chain needs two nodes
-    chains, empties, missing = [], [], set()
+    chains, empties, missing, dropped = [], [], set(), 0
     for i, chain in enumerate(ctc.chains):
         if not chain.nodes:
             empties.append((i, K.pack_chain(chain).hex()))
@@ -62,6 +62,11 @@ def import_ctc(filepath, *, target=None, merge=None, load_ccl=True, warnings=Non
                 kept.append((bn, node))
         if len(kept) >= 2:
             chains.append((chain, kept))
+        else:
+            dropped += 1
+    if dropped:
+        _warn(warnings, rpt('%d chain(s) of %s have fewer than two bones in the armature and were not imported (they are not in an '
+                            'exported ctc either).') % (dropped, name))
     print('Mismatched Bones (%d):' % len(missing))
     for b in sorted(missing):
         print('  ' + b)
@@ -210,6 +215,8 @@ class RE6_OT_import_ctc(bpy.types.Operator, ImportHelper):
                 has_errors = True
                 _warn(warnings, 'Path does not exist, cannot import file.\nIf you are importing multiple files at once, they '
                                 'must all be in the same directory.\nInvalid Path: %s' % path)
+        for w in warnings:
+            self.report({'WARNING'}, w)
         if not has_errors:
             prefs.toggle_console()
             self.report({'INFO'}, rpt('Successfully imported RE6 CTC file.') if not multi

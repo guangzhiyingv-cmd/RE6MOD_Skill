@@ -10,12 +10,27 @@ from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProp
                        PointerProperty, StringProperty)
 
 
-BLEND_MODES = (('OPAQUE', 'Opaque', 'No blending', '62b2d163'), ('ALPHA', 'Alpha Blend', 'Alpha blended', '23baf165'),
-               ('ADD', 'Additive', 'Additive blending', 'd3b1d16b'))
+# (identifier, the engine's name of the state, tooltip, state hash); the names are the ones of the game's shader package
+BLEND_MODES = (('OPAQUE', 'BSSolid', 'Opaque: no blending (alpha test can still cut pixels out)', '62b2d163'),
+               ('ALPHA', 'BSBlendAlpha', 'Alpha blending with the background (smooth transparency)', '23baf165'),
+               ('ADD', 'BSAddAlpha', 'Additive blending (glow, fire)', 'd3b1d16b'),
+               ('COMPOSITE', 'BSComposite', 'Composite blend (1 retail material, meaning unverified)', 'd4823166'))
 TWO_SIDED, ONE_SIDED = '923331ad', '108cf19f'
-DEPTH_MODES = (('TEST_WRITE', 'Test + Write', 'Depth test and depth write (DSZTestWrite)', 'b8139196'),
-               ('TEST', 'Test only', 'Depth test without writing (DSZTest)', '7d2f6198'),
-               ('WRITE', 'Write only', 'Depth write without testing (DSZWrite)', 'a967c199'))
+DEPTH_MODES = (('TEST_WRITE', 'DSZTestWrite', 'Depth test and depth write', 'b8139196'),
+               ('TEST', 'DSZTest', 'Depth test without writing', '7d2f6198'),
+               ('WRITE', 'DSZWrite', 'Depth write without testing', 'a967c199'),
+               ('TEST_STENCIL_WRITE', 'DSZTestStencilWrite', 'Depth test, depth write and stencil write (1 retail '
+                'material)', '3051119c'))
+RASTER_MODES = (('MESH', 'RSMesh', 'Default raster state (back faces culled)', '108cf19f'),
+                ('MESH_CN', 'RSMeshCN', 'No culling: both sides are drawn (two sided)', '923331ad'),
+                ('MESH_CF', 'RSMeshCF', 'Culling variant (10 retail materials, meaning unverified)', '2ab011ac'),
+                ('MESH_BIAS3', 'RSMeshBias3', 'Depth bias variant 3 (1 retail material)', '243271a2'),
+                ('MESH_BIAS5', 'RSMeshBias5', 'Depth bias variant 5 (1 retail material)', '1e6121a4'))
+
+
+def mode_of(table, h) -> str:
+    """identifier of the mode whose state hash is `h` ('CUSTOM' when it is not in the table)"""
+    return {m[3]: m[0] for m in table}.get(h, 'CUSTOM')
 
 
 def _blend_items(self, context):
@@ -38,12 +53,17 @@ def _depth_update(self, context):
             self.depth = m[3]
 
 
-def _sided_update(self, context):
-    if self.raster in (TWO_SIDED, ONE_SIDED):
-        self.raster = TWO_SIDED if self.two_sided else ONE_SIDED
+def _raster_items(self, context):
+    return [(m[0], m[1], m[2]) for m in RASTER_MODES] + [('CUSTOM', 'Custom', 'Other raster state hash (kept as is)')]
+
+
+def _raster_update(self, context):
+    for m in RASTER_MODES:
+        if m[0] == self.raster_mode:
+            self.raster = m[3]
     if self.linkedMaterial is not None:
         try:
-            self.linkedMaterial.use_backface_culling = not self.two_sided
+            self.linkedMaterial.use_backface_culling = self.raster != TWO_SIDED
         except AttributeError:
             pass
 
@@ -273,7 +293,7 @@ class Re6MaterialProps(bpy.types.PropertyGroup):
     raster: StringProperty(name="Raster state hash", default="")
     blend_mode: EnumProperty(name="Blend", items=_blend_items, update=_blend_update)
     depth_mode: EnumProperty(name="Depth", items=_depth_items, update=_depth_update)
-    two_sided: BoolProperty(name="Two Sided", default=False, update=_sided_update)
+    raster_mode: EnumProperty(name="Raster", items=_raster_items, update=_raster_update)
     # the two flag words of the material (core/mrl.py FIELDS)
     alphatest: BoolProperty(name="Alpha Test", description="Discard pixels whose alpha fails the test against the "
                             "reference", default=False)
@@ -400,10 +420,14 @@ class Re6MrlToolPanelPG(bpy.types.PropertyGroup):
                                      ('BC1', 'DXT1', 'No alpha'), ('BC3', 'DXT5', 'With alpha'),
                                      ('BGRA', 'BGRA8', 'Uncompressed, lossless, largest')])
     normalMaps: EnumProperty(name='Files Named *_NM', default='CONVERT',
-                             items=[('CONVERT', 'Convert To DXT5nm', 'The images are regular RGB normal maps'),
+                             items=[('CONVERT', 'Convert To DXT5nm', 'Regular RGB normal maps are converted; images already packed like the game (R and B white) are kept'),
                                     ('KEEP', 'Keep As Is', "The images already use the game's packing")])
     flipGreen: BoolProperty(name='Flip Green', default=True,
                             description='Regular (OpenGL) normal maps to the DirectX convention of the game')
+    generateMipmaps: BoolProperty(name='Generate Mipmaps', default=True,
+                                  description='Write a full mip chain when converting images / .dds to .tex (adds 1/3 '
+                                              'to the size). Off: only the top level, the game then always samples '
+                                              'full resolution (sharper, but shimmering on dense patterns)')
 
 
 CLASSES = (Re6MapPG, Re6SamplerPG, MESH_UL_MrlMapList, MESH_UL_MrlSamplerList, Re6PropPG, Re6PropBlockPG,

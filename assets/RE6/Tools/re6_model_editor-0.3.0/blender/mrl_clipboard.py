@@ -78,16 +78,16 @@ def _paste_flags(obj, d):
             setattr(p, k, bool(d[k]) if isinstance(getattr(p, k), bool) else d[k])
             n += 1
     if 'blend' in d:
-        p.blend_mode = {m[3]: m[0] for m in P.BLEND_MODES}.get(d['blend'], 'CUSTOM')
+        p.blend_mode = P.mode_of(P.BLEND_MODES, d['blend'])
         p.blend = d['blend']
         n += 1
     if 'depth' in d:
-        p.depth_mode = {m[3]: m[0] for m in P.DEPTH_MODES}.get(d['depth'], 'CUSTOM')
+        p.depth_mode = P.mode_of(P.DEPTH_MODES, d['depth'])
         p.depth = d['depth']
         n += 1
     if 'raster' in d:
         p.raster = d['raster']
-        p.two_sided = d['raster'] == P.TWO_SIDED        # also sets the backface culling of the preview material
+        p.raster_mode = P.mode_of(P.RASTER_MODES, d['raster'])      # also sets the backface culling of the preview
         n += 1
     return n, len(d)
 

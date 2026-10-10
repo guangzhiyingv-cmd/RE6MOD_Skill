@@ -52,15 +52,17 @@ def import_ccl(filepath, *, target=None, warnings=None, nested=False, collection
     tp.lastImportCollection = col.name
     header = CF.find_header(col) or CF.create_header(col, 'CTC_HEADER ' + col.name)
     entry_col = O.get_collection('Collision Entries - %s' % name, col, make_new=nested)
-    made, missing = 0, set()
+    made, missing, dropped = 0, set(), 0
     for c in ccl.collisions:
         start_bone = ids.get(c.startBoneId)
         end_bone = ids.get(c.endBoneId) if c.shape == 1 else None
         if start_bone is None:
             missing.add(C.BONE_PREFIX + '%03d' % c.startBoneId)
+            dropped += 1
             continue
         if c.shape == 1 and end_bone is None:
             missing.add(C.BONE_PREFIX + '%03d' % c.endBoneId)
+            dropped += 1
             continue
         if c.shape == 1:
             F.make_capsule(tp, header, entry_col, arm, start_bone, end_bone, c)
@@ -68,6 +70,9 @@ def import_ccl(filepath, *, target=None, warnings=None, nested=False, collection
             F.make_sphere(tp, header, entry_col, arm, start_bone, c)
         made += 1
     F.align_collisions(col)
+    if dropped:
+        _warn(warnings, rpt('%d collision(s) of %s have no bone in the armature and were not imported (they are not in an exported '
+                            'ccl either).') % (dropped, name))
     print('Mismatched Bones (%d):' % len(missing))
     for b in sorted(missing):
         print('  ' + b)
@@ -162,6 +167,8 @@ class RE6_OT_import_ccl(bpy.types.Operator, ImportHelper):
                 has_errors = True
                 _warn(warnings, 'Path does not exist, cannot import file.\nIf you are importing multiple files at once, they '
                                 'must all be in the same directory.\nInvalid Path: %s' % path)
+        for w in warnings:
+            self.report({'WARNING'}, w)
         if not has_errors:
             prefs.toggle_console()
             self.report({'INFO'}, rpt('Successfully imported RE6 CCL file.') if not multi

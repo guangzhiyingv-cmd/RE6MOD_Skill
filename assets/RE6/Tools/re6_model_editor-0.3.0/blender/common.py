@@ -24,8 +24,9 @@ T_MOD = 'RE6_MOD_COLLECTION'
 T_MRL = 'RE6_MRL_COLLECTION'
 T_MAT = 'RE6_MRL_MATERIAL'
 
-K_ID, K_MIRROR, K_UNK, K_RADIUS, K_LENGTH, K_INDEX = ('Mod_Bone_Id', 'Mod_Bone_Symmetry', 'Mod_Bone_Unkn', 'Mod_Bone_Radius',
-                                                     'Mod_Bone_Length', 'Mod_Bone_Index')
+# the function id of a bone is NOT stored: it is the number in the bone name (bone_name_id), as in the MHW Model Editor
+K_MIRROR, K_UNK, K_RADIUS, K_LENGTH, K_INDEX = ('Mod_Bone_Symmetry', 'Mod_Bone_Unkn', 'Mod_Bone_Radius', 'Mod_Bone_Length',
+                                               'Mod_Bone_Index')
 K_NAME = 'Mrl_Name'              # custom property of an MRL material empty: the resolved name of its hash
 K_MAT_HASH = 're6_hash'          # custom property of a Blender material: hash of the .mod material it shows
 
@@ -178,18 +179,30 @@ def is_ctc(col):
     return col is not None and col.get(TYPE) == T_CTC
 
 
+BONE_ID_RE = r'^%s(\d{3})(\.\d+)?$' % BONE_PREFIX
+
+
+def bone_name_id(name):
+    """function id written in a bone name: "RE6Bone_050" -> 50, and "RE6Bone_050.001" (what Blender makes of a second bone with
+    that id) -> 50 too; None for any other name. The name is the only source of the id, like "MhBone_xxx" in the MHW Model Editor."""
+    m = re.match(BONE_ID_RE, name)
+    return int(m.group(1)) if m else None
+
+
+def is_dup_bone_name(name):
+    m = re.match(BONE_ID_RE, name)
+    return bool(m and m.group(2))
+
+
 def bone_fn_id(bone):
-    """function id of an armature bone: its Mod_Bone_Id, else the number of its name (None when it has neither)"""
-    if K_ID in bone:
-        return int(bone[K_ID])
-    m = re.match(BONE_NAME_RE, bone.name)
-    return int(m.group(0)[len(BONE_PREFIX):]) if m else None
+    """function id of an armature bone, from its name only (None when the name does not carry one)"""
+    return bone_name_id(bone.name)
 
 
 def bones_by_id(arm_obj):
-    """{function id: bone name} of an armature"""
+    """{function id: bone name} of an armature (the first bone of an id when several have it: the one without ".001")"""
     out = {}
-    for b in arm_obj.data.bones:
+    for b in sorted(arm_obj.data.bones, key=lambda b: (is_dup_bone_name(b.name), b.name)):
         fid = bone_fn_id(b)
         if fid is not None:
             out.setdefault(fid, b.name)

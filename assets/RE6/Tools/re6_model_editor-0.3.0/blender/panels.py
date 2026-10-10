@@ -41,7 +41,7 @@ def draw_flags(lay, obj):
     col.use_property_decorate = False
     col.prop(p, 'blend_mode')
     col.prop(p, 'depth_mode')
-    col.prop(p, 'two_sided')
+    col.prop(p, 'raster_mode')
     col.separator()
     col.prop(p, 'alphatest')
     sub = col.column()
@@ -316,7 +316,8 @@ class RE6_PT_mesh_tools(bpy.types.Panel):
         col1 = box1.column(align=True)
         col2 = box2.column(align=True)
         first = True
-        for col, ops in ((col1, ('create_mod_collection', 'create_nested_collections', 'rename_meshes', 'set_mesh_group_id')),
+        for col, ops in ((col1, ('create_mod_collection', 'create_nested_collections', 'rename_meshes', 'set_mesh_group_id',
+                                 'match_bone_names')),
                          (col2, ('bake_normal_to_vertex_color', 'delete_loose_geometry', 'remove_empty_vertex_groups',
                                  'limit_total_normalize'))):
             first = True

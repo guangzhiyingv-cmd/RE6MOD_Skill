@@ -10,6 +10,7 @@ import bpy
 from bpy.props import (BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty, PointerProperty,
                        StringProperty)
 
+from ..core import chain_ids as CI
 from ..core import ctc as K
 from . import common as C
 from . import ctc_nodes as CN
@@ -180,9 +181,17 @@ class Re6CtcToolPanelPG(bpy.types.PropertyGroup):
                     'the current armature')
     reserveMeshObjects: BoolProperty(name='Reserve Mesh Objects', default=False,
                                      description='Reserve mesh objects when hiding other objects')
-    nextChainBoneID: IntProperty(name='Next Start Bone ID', default=100, min=0, max=254,
-                                 description='Start Bone ID that "Rename Chain Bones" suggests next. Every rename moves it past '
-                                             'the renamed chain; IDs already used by the armature are skipped')
+    nextChainBoneID: IntProperty(name='Next Start Bone ID', default=0, min=0, max=254,
+                                 description='"Rename Chain Bones" suggests the first free ID of the available range from this ID on. '
+                                             'Every rename moves it past the renamed chain; IDs already used by the armature are '
+                                             'skipped')
+    chainIdCharacter: EnumProperty(
+        name='Character', items=[(i, l, '') for i, l, _ in CI.CHARACTERS],
+        description='Which IDs "Rename Chain Bones" may use.\nGeneric is the most conservative choice: only IDs that are free '
+                    'in every character\nA character offers all IDs that nothing of that character uses')
+    chainIdPart: EnumProperty(
+        name='Part', items=[(i, l, '') for i, l, _ in CI.PARTS],
+        description='The part of the model (plXXz0 body, plXXz3 head) the chain is on.\nThe available IDs depend on it')
     visibilitySettingsLoaded: BoolProperty(default=False, options={'HIDDEN'})   # prefs.load_ctc_visibility
 
 
@@ -274,6 +283,8 @@ class Re6CtcChainPG(bpy.types.PropertyGroup):
                                description='Usually the value is 0.1')
 
 
+VGROUND_BIT = 8
+
 CHAIN_KEYS = ('CollisionAttrFlagValue', 'ChainAttrFlagValue', 'unknAttrFlag1', 'unknAttrFlag2', 'ColAttribute', 'ColGroup',
               'ColType', 'Gravity', 'Damping', 'TransForceCoef', 'SpringCoef', 'unknFloat', 'LimitForce', 'FrictionCoef',
               'ReflectCoef')
@@ -293,7 +304,9 @@ def chain_to_pg(c, obj):
 
 def chain_from_pg(obj):
     pg = obj.re6_ctc_chain
-    return K.Chain(collisionAttrFlag=pg.CollisionAttrFlagValue, chainAttrFlag=pg.ChainAttrFlagValue,
+    # bit 8 (VGround) is never written: in game the chains of a player model stay behind when the body is moved by a
+    # scripted motion (crawl under an obstacle); no retail player ctc sets it
+    return K.Chain(collisionAttrFlag=pg.CollisionAttrFlagValue & ~VGROUND_BIT & 255, chainAttrFlag=pg.ChainAttrFlagValue,
                    unknAttrFlag1=pg.unknAttrFlag1, unknAttrFlag2=pg.unknAttrFlag2, colAttribute=pg.ColAttribute,
                    colGroup=pg.ColGroup, colType=pg.ColType, gravity=tuple(round(v * 100.0, 4) for v in pg.Gravity),
                    damping=pg.Damping, transForceCoef=pg.TransForceCoef, springCoef=pg.SpringCoef, unknFloat=pg.unknFloat,

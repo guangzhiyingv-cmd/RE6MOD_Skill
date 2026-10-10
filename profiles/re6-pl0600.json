@@ -22,11 +22,12 @@
     "body": "00_Body"
   },
   "blender": {
-    "executable": "D:\\steam\\steamapps\\common\\Blender\\blender.exe",
+    "executable": "",
     "version": "5.2"
   },
   "addons": [
     "mmd_tools",
+    "Modding-Toolkit",
     "re6_model_editor"
   ],
   "required_assets": [
@@ -36,6 +37,8 @@
     "assets/RE6/pl0600.ccl",
     "assets/RE6/pl0600.ctc",
     "assets/RE6/RE6.json",
+    "assets/RE6/Tools/mmd_tools",
+    "assets/RE6/Tools/Modding-Toolkit",
     "assets/RE6/Tools/re6_model_editor-0.3.0",
     "assets/RE6/Tools/RE6 SideLoader",
     "assets/RE6/Tools/RE6_SideloadConverter",
@@ -51,6 +54,8 @@
     "bone_semantics": "assets/RE6/RE6.json",
     "reference_mod": "assets/RE6/参考标准mod/RE6 Shinano Official",
     "model_editor_addon": "assets/RE6/Tools/re6_model_editor-0.3.0",
+    "mmd_tools": "assets/RE6/Tools/mmd_tools",
+    "modding_toolkit": "assets/RE6/Tools/Modding-Toolkit",
     "sideloader": "assets/RE6/Tools/RE6 SideLoader",
     "sideload_converter": "assets/RE6/Tools/RE6_SideloadConverter",
     "arc_tool": "assets/RE6/Tools/RE6-ARC-Studio/RE6-ARC-Studio.exe"

@@ -81,7 +81,6 @@ def create_armature(model, name, collection, display_type, bone_size):
         eb = arm.edit_bones[names[b.index]]
         if b.parent != 255 and b.parent < len(names):
             eb.parent = arm.edit_bones[names[b.parent]]
-        eb[C.K_ID] = int(b.fn_id)
         eb[C.K_INDEX] = int(b.index)
         eb[C.K_UNK] = int(b.unk)
         if b.mirror < len(names):                       # 255 = no symmetric bone: no key, like the MHW Model Editor
@@ -189,8 +188,8 @@ def _add_weights(vg, idx, weights):
 
 
 def load_materials(root, filepath, *, texture_dir='', mrl_path='', previews=True, keep_mrl=True, report=None):
-    """build the '<name>.mrl' collection (material entries) for a model collection; looks for the .mrl next to the model,
-    then in the game archives. Returns the MRL collection (None when there is none or keep_mrl is off)"""
+    """build the '<name>.mrl' collection (material entries) for a model collection; looks for the .mrl next to the model only
+    (never in the game archives). Returns the MRL collection (None when there is none or keep_mrl is off)"""
     from . import materials as MT
     from . import mrl_objects as MO
     from . import prefs
@@ -198,23 +197,24 @@ def load_materials(root, filepath, *, texture_dir='', mrl_path='', previews=True
     near = MT.find_game_dirs(filepath, ())
     if near:
         prefs.save_game_path(near[0])
-    game_dirs = MT.find_game_dirs(filepath, p.game_paths() if p else ())
     if mrl_path:
         with open(mrl_path, 'rb') as fh:
             data, where = fh.read(), mrl_path
     else:
-        data, where = MT.find_mrl(filepath, game_dirs)
+        data, where = MT.find_mrl(filepath)
     if data is None:
         if report:
-            report({'WARNING'}, rpt('RE6: no .mrl found for %s, materials stay untextured') % os.path.basename(filepath))
+            report({'WARNING'}, rpt('RE6: no .mrl found next to %s, materials stay untextured') % os.path.basename(filepath))
         return None
-    finder = MT.TextureFinder([texture_dir, p.texture_dir if p else '', os.path.dirname(filepath)], game_dirs,
-                              MT.loose_roots(filepath, game_dirs))
-    col, done, added = MO.import_data(root, data, where, finder, p.pack_textures if p else True, previews=previews)
+    finder = MT.texture_finder(filepath, texture_dir, p.texture_dir if p else '', p.game_paths() if p else ())
+    col, done, missing = MO.import_data(root, data, where, finder, p.pack_textures if p else True, previews=previews)
     if report:
         report({'INFO'}, rpt('RE6: %s: %d of %d materials textured%s') % (
             os.path.basename(where), done, len(MO.model_visuals(root)),
-            rpt(', %d materials are not in the .mrl') % added if added else ''))
+            rpt(', %d materials are not in the .mrl') % len(missing) if missing else ''))
+        if missing:
+            print('RE6: materials of the meshes that %s does not have: %s' % (os.path.basename(where),
+                  ', '.join(MO.model_visuals(root)[h].name for h in missing)))
     if not keep_mrl:
         MO.remove_collection(col)           # the materials keep their textures, only the entries go
         return None

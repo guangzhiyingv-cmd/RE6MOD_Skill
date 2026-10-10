@@ -10,6 +10,8 @@ from pathlib import Path
 import bpy
 from mathutils import Vector
 
+import internal_deps
+
 
 PRESET_MATCH_THRESHOLD = 0.95
 PRESET_TIE_TOLERANCE = 1e-9
@@ -17,17 +19,7 @@ REE_POSE_PRESETS: set[str] = set()
 
 
 def enable_modding_toolkit() -> None:
-    errors = []
-    for module in ("Modding-Toolkit", "Modding-Toolkit-dev"):
-        # Re-enabling an enabled add-on re-registers its classes, which
-        # invalidates property pointers the caller may still hold.
-        if module in bpy.context.preferences.addons:
-            return
-        result = bpy.ops.preferences.addon_enable(module=module)
-        if "FINISHED" in result:
-            return
-        errors.append(f"{module}: {result}")
-    raise RuntimeError("Modding Toolkit is not available: " + "; ".join(errors))
+    internal_deps.ensure_modding_toolkit()
 
 
 def bone_mapper_module() -> object:

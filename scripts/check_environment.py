@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -92,21 +93,19 @@ def blender_version(blender_path: Path) -> dict[str, object]:
     }
 
 
-def addon_roots(blender_version: str) -> list[Path]:
-    appdata = Path(os.environ.get("APPDATA", ""))
-    blender_root = appdata / "Blender Foundation" / "Blender" / blender_version
-    return [
-        blender_root / "scripts" / "addons",
-        blender_root / "extensions" / "user_default",
-    ]
+INTERNAL_ADDONS = {
+    "mmd_tools": "assets/RE6/Tools/mmd_tools",
+    "Modding-Toolkit": "assets/RE6/Tools/Modding-Toolkit",
+    "re6_model_editor": "assets/RE6/Tools/re6_model_editor-0.3.0",
+}
 
 
-def locate_addon(name: str, roots: list[Path]) -> str | None:
-    for root in roots:
-        candidate = root / name
-        if candidate.is_dir():
-            return str(candidate)
-    return None
+def locate_addon(skill_root: Path, name: str) -> str | None:
+    relative = INTERNAL_ADDONS.get(name)
+    if relative is None:
+        return None
+    candidate = skill_root / relative
+    return str(candidate) if candidate.is_dir() else None
 
 
 def main() -> int:
@@ -122,23 +121,32 @@ def main() -> int:
     )
 
     blender_version_required = str(profile["blender"]["version"])
-    blender_path = (
+    configured_blender = (
         args.blender
-        or Path(profile["blender"]["executable"])
-    ).resolve()
+        or os.environ.get("BLENDER_EXECUTABLE")
+        or profile["blender"].get("executable")
+    )
+    if configured_blender:
+        blender_path = Path(configured_blender).resolve()
+    else:
+        discovered = shutil.which("blender")
+        blender_path = (
+            Path(discovered).resolve()
+            if discovered
+            else Path("blender").resolve()
+        )
     version = blender_version(blender_path)
     version_matches = str(version.get("version", "")).startswith(
         blender_version_required + "."
     )
 
-    roots = addon_roots(blender_version_required)
     required_addon_names = [
         name
         for name in profile.get("addons", [])
         if not (name == "mmd_tools" and source_adapter != "mmd")
     ]
     addons = {
-        name: locate_addon(name, roots)
+        name: locate_addon(skill_root, name)
         for name in required_addon_names
     }
     skipped_addons = {
@@ -170,7 +178,10 @@ def main() -> int:
         "blender": str(blender_path),
         "blender_version_required": blender_version_required,
         "blender_version": version,
-        "addon_roots": [str(path) for path in roots],
+        "internal_addon_paths": {
+            name: str((skill_root / relative).resolve())
+            for name, relative in INTERNAL_ADDONS.items()
+        },
         "addons": addons,
         "skipped_addons": skipped_addons,
         "required_assets": assets,

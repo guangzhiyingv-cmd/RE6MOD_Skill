@@ -16,6 +16,11 @@ execution is the default and is described in
 [references/low-token-mode.md](references/low-token-mode.md) and
 [references/low-token-stages.md](references/low-token-stages.md).
 
+The skill is self-contained for Blender add-ons. `mmd_tools`,
+`Modding-Toolkit`, and `re6_model_editor` are vendored under
+`assets/RE6/Tools` and loaded from there by `scripts/internal_deps.py`.
+Blender 5.2 itself is the only external runtime.
+
 ## Target
 
 - Target profile: [profiles/re6-pl0600.json](profiles/re6-pl0600.json)
@@ -100,11 +105,12 @@ python scripts/create_project.py `
 Check the environment and inspect the source:
 
 ```powershell
+$env:BLENDER_EXECUTABLE = "C:\path\to\Blender\blender.exe"
 python scripts/check_environment.py `
   --profile profiles/re6-pl0600.json `
   --project "E:\mod\re6\Lossi\work\lossi\project.json"
 
-& "D:\steam\steamapps\common\Blender\blender.exe" `
+& $env:BLENDER_EXECUTABLE `
   --background --factory-startup `
   --python scripts/inspect_source.py `
   -- `

@@ -18,6 +18,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import re6_physics_bones
 import re6_target_skeleton
+import internal_deps
 import source_rig_utils
 
 
@@ -45,13 +46,7 @@ def write_json(path: Path, payload: dict) -> None:
 
 
 def enable_addon(modules: tuple[str, ...]) -> None:
-    errors = []
-    for module in modules:
-        result = bpy.ops.preferences.addon_enable(module=module)
-        if "FINISHED" in result:
-            return
-        errors.append(f"{module}: {result}")
-    raise RuntimeError("Could not enable addon. Tried: " + "; ".join(errors))
+    internal_deps.ensure_modding_toolkit()
 
 
 def set_active(obj: bpy.types.Object) -> None:

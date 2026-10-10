@@ -16,9 +16,15 @@ produces:
 ## Requirements
 
 - Blender 5.2
-- `mmd_tools`
-- `re6_model_editor`
-- the latest Modding Toolkit add-on used by the source import and mesh stages
+
+The required Blender add-ons are included inside the skill:
+
+- `assets/RE6/Tools/mmd_tools`
+- `assets/RE6/Tools/Modding-Toolkit`
+- `assets/RE6/Tools/re6_model_editor-0.3.0`
+
+No external add-on installation is required. Stage scripts load and register
+these internal copies directly.
 
 ## Quick Start
 
@@ -31,6 +37,7 @@ python scripts/create_project.py `
 ```
 
 ```powershell
+$env:BLENDER_EXECUTABLE = "C:\path\to\Blender\blender.exe"
 python scripts/check_environment.py `
   --profile profiles/re6-pl0600.json `
   --project "E:\mod\re6\Lossi\work\lossi\project.json"

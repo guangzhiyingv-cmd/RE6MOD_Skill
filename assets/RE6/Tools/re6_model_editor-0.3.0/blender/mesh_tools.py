@@ -8,12 +8,14 @@ import re
 import bmesh
 import bpy
 import numpy as np
-from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty, StringProperty
 from bpy.types import Operator
 from mathutils import Matrix
 
+from ..core import bone_match as BM
+from . import bone_rename as BR
 from . import common as C
-from .i18n import rpt
+from .i18n import iface, rpt
 
 _ROT_NEG90 = Matrix.Rotation(-1.5707963267948966, 4, 'X')
 
@@ -312,8 +314,138 @@ class RE6_OT_bake_normal_color(Operator):
         return {'FINISHED'}
 
 
-CLASSES = (RE6_OT_create_collection, RE6_OT_create_nested_collections, RE6_OT_rename_meshes, RE6_OT_set_group_id, RE6_OT_delete_loose,
-           RE6_OT_remove_empty_groups, RE6_OT_limit_normalize, RE6_OT_bake_normal_color)
+def _bone_table(arm):
+    """([names], (n, 3) head positions in cm) of the RE6Bone_xxx bones of an armature object"""
+    names, pos = [], []
+    for b in arm.data.bones:
+        if re.fullmatch(C.BONE_NAME_RE, b.name):
+            names.append(b.name)
+            pos.append(np.array((arm.matrix_world @ b.head_local)[:]) * 100.0)
+    return names, np.array(pos).reshape(-1, 3)
+
+
+def _wrap_names(names, width=46):
+    lines, cur = [], ''
+    for n in names:
+        part = n[len(C.BONE_PREFIX):]
+        if cur and len(cur) + len(part) + 2 > width:
+            lines.append(cur)
+            cur = ''
+        cur = part if not cur else cur + ', ' + part
+    return lines + ([cur] if cur else [])
+
+
+_ARMATURE_ITEMS = []                 # the items of a dynamic enum have to stay alive
+
+
+def _armature_items(self, context):
+    del _ARMATURE_ITEMS[:]
+    active = context.active_object if context else None
+    for o in bpy.data.objects:
+        if o.type == 'ARMATURE' and o != active:
+            _ARMATURE_ITEMS.append((o.name, o.name, ''))
+    return _ARMATURE_ITEMS or [('', '-', '')]
+
+
+class RE6_OT_match_bone_names(Operator):
+    bl_idname = 're6_mod.match_bone_names'
+    bl_label = 'Match Bone Names'
+    bl_description = ('Give the bones of the active armature the names of a reference armature, matched by position.\nFor a model '
+                      'that was made with an older bone numbering: the physics bones get the ids of the newer version, so its '
+                      '.ctc / .ccl fit.\nThe bone ids, the vertex groups, the mirror names and the chain / collision objects '
+                      'follow. Bones without a partner are moved to free ids above 255 for you to handle')
+    bl_options = {'UNDO'}
+
+    reference: EnumProperty(name='Reference Armature', items=_armature_items,
+                            description='The armature whose bone names are taken over')
+    tolerance: FloatProperty(name='Tolerance (cm)', default=0.5, min=0.01, max=10.0, soft_max=2.0,
+                             description='A bone matches a bone of the reference when their heads are closer than this')
+    autoOffset: BoolProperty(name='Detect Offset', default=True,
+                             description='Find how far the two skeletons are apart (from the bones that have the same name in both)')
+    offset: FloatVectorProperty(name='Offset (cm)', size=3, default=(0.0, 0.0, 0.0),
+                                description='How far the active armature is from the reference (active - reference)')
+    parkStartID: IntProperty(name='Free ID Start', default=500, min=256, max=999,
+                             description='The bones without a partner are renamed to RE6Bone_<id> from here on.\nIds above 254 '
+                                         'are not valid in a .mod: the export stops until you have dealt with these bones')
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == 'ARMATURE'
+
+    def compute(self, context):
+        arm, ref = context.active_object, bpy.data.objects.get(self.reference)
+        if ref is None or ref.type != 'ARMATURE' or ref == arm:
+            return None
+        na, pa = _bone_table(arm)
+        nb, pb = _bone_table(ref)
+        shift = BM.detect_shift(na, pa, nb, pb) if self.autoOffset else np.array(self.offset, float)
+        mapping, un_a, un_b = BM.match(na, pa, nb, pb, shift, self.tolerance)
+        taken = set(nb) | {b.name for b in arm.data.bones if b.name not in na}
+        try:
+            final = BM.plan(mapping, un_a, taken, self.parkStartID)
+        except ValueError:
+            return None
+        return dict(shift=shift, mapping=mapping, unmatched=un_a, unmatched_ref=un_b, final=final)
+
+    def invoke(self, context, event):
+        arm = context.active_object
+        names = {b.name for b in arm.data.bones}
+        best, score = None, 0
+        for o in bpy.data.objects:
+            if o.type == 'ARMATURE' and o != arm:
+                n = len(names & {b.name for b in o.data.bones})
+                if n > score:
+                    best, score = o, n
+        if best is not None:
+            self.reference = best.name
+        return context.window_manager.invoke_props_dialog(self, width=440)
+
+    def draw(self, context):
+        lay = self.layout
+        lay.prop(self, 'reference')
+        if bpy.data.objects.get(self.reference) is None:
+            lay.label(text=iface('Choose another armature as the reference.'), icon='ERROR')
+            return
+        lay.prop(self, 'tolerance')
+        lay.prop(self, 'autoOffset')
+        if not self.autoOffset:
+            lay.prop(self, 'offset')
+        lay.prop(self, 'parkStartID')
+        res = self.compute(context)
+        if res is None:
+            lay.label(text=iface('Cannot match: the reference has no RE6Bone_xxx bones.'), icon='ERROR')
+            return
+        sh = res['shift']
+        lay.label(text='%s %.2f, %.2f, %.2f' % (iface('Offset (cm):'), sh[0], sh[1], sh[2]))
+        renames = sum(1 for o, n in res['final'].items() if o != n)
+        lay.label(text='%s %d   %s %d' % (iface('Matched:'), len(res['mapping']), iface('To rename:'), renames))
+        if res['unmatched']:
+            lay.label(text='%s (%d):' % (iface('Bones without a partner'), len(res['unmatched'])), icon='INFO')
+            for line in _wrap_names(res['unmatched']):
+                lay.label(text=line)
+        if res['unmatched_ref']:
+            lay.label(text='%s (%d):' % (iface('Reference bones without a partner'), len(res['unmatched_ref'])))
+            for line in _wrap_names(res['unmatched_ref']):
+                lay.label(text=line)
+
+    def execute(self, context):
+        res = self.compute(context)
+        if res is None or not res['mapping']:
+            C.show_error_message_box(iface('No bone of the armature matches a bone of the reference. Check the reference and the '
+                                           'tolerance.'))
+            return {'CANCELLED'}
+        try:
+            n = BR.rename_bones(context.active_object, res['final'])
+        except ValueError as e:
+            C.show_error_message_box(iface('The bones cannot be renamed: %s') % e)
+            return {'CANCELLED'}
+        self.report({'INFO'}, rpt('Renamed %d bone(s), %d without a partner were moved to free ids from RE6Bone_%03d.')
+                    % (n, len(res['unmatched']), self.parkStartID))
+        return {'FINISHED'}
+
+
+CLASSES = (RE6_OT_match_bone_names, RE6_OT_create_collection, RE6_OT_create_nested_collections, RE6_OT_rename_meshes,
+           RE6_OT_set_group_id, RE6_OT_delete_loose, RE6_OT_remove_empty_groups, RE6_OT_limit_normalize, RE6_OT_bake_normal_color)
 
 
 def register():

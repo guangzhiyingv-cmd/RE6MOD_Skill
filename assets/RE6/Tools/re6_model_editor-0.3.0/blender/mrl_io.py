@@ -104,6 +104,9 @@ class RE6_OT_export_mrl(Operator, ExportHelper):
         tp.exportMrlCollection = col
         if col and '.mrl' in col.name:
             self.filepath = col.name.split('.mrl')[0] + '.mrl'
+            src = col.get(MO.K_SRC, '')
+            if src.lower().endswith('.mrl') and os.path.splitext(os.path.basename(src))[0].startswith(col.name.split('.mrl')[0]):
+                self.filepath = os.path.basename(src)              # an imported "pl0603_1.mrl" is saved as such
 
         if not os.path.dirname(self.filepath):
             p = prefs.get()

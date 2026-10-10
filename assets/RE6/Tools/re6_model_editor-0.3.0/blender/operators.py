@@ -17,6 +17,17 @@ from .i18n import rpt
 VERSION = (0, 3)       # bl_info version of the add-on, printed in the console
 
 
+def model_of_active_object(context):
+    """the model collection that contains the active object, None when it is in none (no guessing)"""
+    obj = context.object
+    if obj:
+        for c in obj.users_collection:
+            for cand in C.mod_collections():
+                if c == cand or c.name in cand.children_recursive:
+                    return cand
+    return None
+
+
 def active_model_collection(context):
     """model collection that contains the active object, else the one of the active MRL collection / the tool panel, else the
     first RE6 model collection"""
@@ -51,7 +62,7 @@ def set_mod_import_defaults(self):
 def set_mod_export_defaults(self):
     p = prefs.get()
     if p:
-        for n in ('selectedOnly', 'visibleOnly', 'exportAllLODs', 'useBlenderMaterialName', 'shadowMode'):
+        for n in ('selectedOnly', 'visibleOnly', 'exportAllLODs', 'useBlenderMaterialName', 'shadowMode', 'allowDuplicateBoneNames'):
             setattr(self, n, getattr(p, 'default_' + n))
 
 
@@ -264,6 +275,11 @@ class RE6_OT_export_mod(bpy.types.Operator, ExportHelper):
     # mod export settings
     selectedOnly: BoolProperty(name='Only Selected Meshes', default=False, description='Only export selected meshes')
     visibleOnly: BoolProperty(name='Only Visible Meshes', default=False, description='Only export visible meshes')
+    allowDuplicateBoneNames: BoolProperty(
+        name='Allow Duplicate Bone Names', default=False,
+        description='Accept bones named like "RE6Bone_050.001" (what Blender makes of a second bone with the same id) and write '
+                    'the id before the ".001". Several bones then share one function id; a few retail models (props, some '
+                    'enemies) have that')
     exportAllLODs: BoolProperty(
         name='Export All LODs', default=True,
         description='Export all LOD meshes. If unchecked, only the highest LOD meshes will be exported.'
@@ -330,7 +346,7 @@ class RE6_OT_export_mod(bpy.types.Operator, ExportHelper):
             row.label(icon='ERROR', text='Must select a mod collection first !!!')
         col.separator()
 
-        for n in ('selectedOnly', 'visibleOnly', 'shadowMode', 'useBlenderMaterialName'):
+        for n in ('selectedOnly', 'visibleOnly', 'shadowMode', 'useBlenderMaterialName', 'allowDuplicateBoneNames'):
             row = col.row(align=True)
             row.scale_y = 1.1
             row.prop(self, n)
@@ -348,7 +364,8 @@ class RE6_OT_export_mod(bpy.types.Operator, ExportHelper):
         try:
             export_mod(self.filepath, col, selectedOnly=self.selectedOnly, visibleOnly=self.visibleOnly,
                        shadowMode=self.shadowMode, exportAllLODs=self.exportAllLODs,
-                       useBlenderMaterialName=self.useBlenderMaterialName, report=self.report)
+                       useBlenderMaterialName=self.useBlenderMaterialName,
+                       allowDuplicateBoneNames=self.allowDuplicateBoneNames, report=self.report)
             success = True
         except ExportError as e:
             print_errors(e.errors, 'mod')

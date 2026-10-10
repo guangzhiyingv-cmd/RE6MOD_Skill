@@ -41,7 +41,7 @@ def derive_mirrors(pos, tol=5e-4):
     return out
 
 
-def collect_bones(arm_obj, errors):
+def collect_bones(arm_obj, errors, allowDuplicateBoneNames=False):
     arm = arm_obj.data
     bones = list(arm.bones)
     if len(bones) > MAX_BONES:
@@ -64,22 +64,16 @@ def collect_bones(arm_obj, errors):
             add_error(errors, 'BoneLoop')
             return [], {}
     index_of = {b.name: i for i, b in enumerate(ordered)}
-    used_ids = {int(b[C.K_ID]) for b in ordered if C.K_ID in b}
-    next_id = 0
     world = {b.name: C.bone_world_re6(b, arm_obj) for b in ordered}
     derived = derive_mirrors([world[b.name][3, :3] for b in ordered])
     out = []
     for i, b in enumerate(ordered):
-        if C.K_ID in b:
-            fn = int(b[C.K_ID])
-        else:
-            m = re.match(r'^%s(\d+)' % C.BONE_PREFIX, b.name, re.I)
-            fn = int(m.group(1)) if m else None
-            if fn is None or fn in used_ids:
-                while next_id in used_ids:
-                    next_id += 1
-                fn = next_id
-            used_ids.add(fn)
+        # the id is the number in the bone name and nothing else (like "MhBone_xxx" in the MHW Model Editor): a name that
+        # does not carry one, or the ".001" of a second bone with the same id when duplicates are not allowed, is an error
+        fn = C.bone_name_id(b.name)
+        if fn is None or (C.is_dup_bone_name(b.name) and not allowDuplicateBoneNames):
+            add_error(errors, 'IncorrectBoneNameFormat', boneName=b.name)
+            fn = 0
         if fn > 254:
             add_error(errors, 'IncorrectBoneNameFormat', boneName=b.name)
         Wb = world[b.name]
@@ -97,7 +91,7 @@ def collect_bones(arm_obj, errors):
         mirror = b.get(C.K_MIRROR, '')
         if mirror:
             mirror_index = index_of.get(mirror, i)
-        elif C.K_ID in b:                               # an imported bone without the key had no partner
+        elif C.K_INDEX in b:                            # an imported bone without the key had no partner
             mirror_index = 255
         else:                                           # a new bone
             mirror_index = derived[i]
@@ -429,7 +423,7 @@ def make_shadow_part(part):
 
 # --------------------------------------------------------------------------- main
 def export_mod(filepath, collection, *, selectedOnly=False, visibleOnly=False, shadowMode='KEEP', exportAllLODs=True,
-               useBlenderMaterialName=False, report=None):
+               useBlenderMaterialName=False, allowDuplicateBoneNames=False, report=None):
     """option names are the ones of the MHW Model Editor's mod3 exporter (shadowMode is RE6's)"""
     errors, warnings = {}, []
     if collection is None:
@@ -467,7 +461,7 @@ def export_mod(filepath, collection, *, selectedOnly=False, visibleOnly=False, s
     try:
         bones, index_of = ([], {})
         if arm_obj is not None:
-            bones, index_of = collect_bones(arm_obj, errors)
+            bones, index_of = collect_bones(arm_obj, errors, allowDuplicateBoneNames)
         materials = [int(h, 16) for h in json.loads(collection.get(C.K_MATERIALS, '[]'))]
         dg = bpy.context.evaluated_depsgraph_get()
         parts = []
@@ -487,9 +481,6 @@ def export_mod(filepath, collection, *, selectedOnly=False, visibleOnly=False, s
             bpy.context.view_layer.update()
     if errors:
         raise ExportError(errors)
-    if len(materials) > MAX_MATERIALS_TOTAL:
-        add_error(errors, 'TotalMaterialsExceeded')
-        raise ExportError(errors)
 
     if shadowMode == 'NONE':
         for p in parts:
@@ -506,10 +497,21 @@ def export_mod(filepath, collection, *, selectedOnly=False, visibleOnly=False, s
         add_error(errors, 'TotalMeshesExceeded')
         raise ExportError(errors)
 
-    groups = {int(k[len(C.K_GROUP):]): tuple(collection[k]) for k in collection.keys() if k.startswith(C.K_GROUP)}
+    groups = {int(k[len(C.K_GROUP):]): tuple(collection[k]) for k in collection.keys()
+              if k.startswith(C.K_GROUP) and k[len(C.K_GROUP):].isdigit()}
     remap = bytes.fromhex(collection.get(C.K_REMAP, '')) if collection.get(C.K_REMAP) else b''
     trailer = bytes.fromhex(collection.get(C.K_TRAILER, '')) if collection.get(C.K_TRAILER) else b''
     lod_dist = tuple(collection.get(C.K_LOD_DIST, MD.DEFAULT_LOD_DIST))
+    # the material table lists what the meshes use and nothing else (the stored table of an imported model only gives the order)
+    if all(0 <= p.material < len(materials) for p in parts):
+        used = sorted({p.material for p in parts})
+        new_index = {o: n for n, o in enumerate(used)}
+        materials = [materials[o] for o in used]
+        for p in parts:
+            p.material = new_index[p.material]
+    if len(materials) > MAX_MATERIALS_TOTAL:
+        add_error(errors, 'TotalMaterialsExceeded')
+        raise ExportError(errors)
     model = MD.Model(bones, parts, materials, groups, lod_dist, remap, trailer, None, int(collection.get(C.K_TAIL_PAD, 0)))
     quant = None
     if C.K_ORIGIN in collection and C.K_SCALE in collection:

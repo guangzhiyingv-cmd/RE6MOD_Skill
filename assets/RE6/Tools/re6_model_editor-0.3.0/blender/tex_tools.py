@@ -46,6 +46,13 @@ def to_dxt5nm(rgba, flip_green):
     return out
 
 
+def is_dxt5nm(rgba):
+    """True when an (H, W, 4) uint8 image is already packed like the game's normal maps: R and B painted white
+    (x lives in alpha, y in green). A regular RGB normal map has R around 0.5, so R alone tells them apart"""
+    r, b = rgba[..., 0], rgba[..., 2]
+    return bool((r >= 240).mean() > 0.98 and (b >= 240).mean() > 0.98)
+
+
 def tex_suffix(name):
     base = os.path.splitext(os.path.basename(name))[0]
     return (base.rsplit('_', 1)[-1].upper() if '_' in base else '')[:2]
@@ -56,7 +63,7 @@ def image_to_tex_bytes(im, role, flip_green=True, layout=None, fmt=None):
     normal map images that did not come from a .tex are converted to DXT5nm"""
     rgba = image_rgba(im)
     came_from_tex = bool(im.get(MT.K_TEX))
-    if role == 'normal' and not came_from_tex:
+    if role == 'normal' and not came_from_tex and not is_dxt5nm(rgba):
         rgba = to_dxt5nm(rgba, flip_green)
     layout = layout or im.get('re6_layout')
     if layout not in (T.BC1, T.BC3, T.BGRA):
@@ -137,29 +144,38 @@ def _load_rgba(path):
         bpy.data.images.remove(im)
 
 
-def image_file_to_tex(path, compression='AUTO', normal_maps='CONVERT', flip_green=True):
+def image_file_to_tex(path, compression='AUTO', normal_maps='CONVERT', flip_green=True, mipmaps=True):
     """.tex bytes of a .dds / .png / .tga ... file. compression: AUTO (DXT5 for normal maps and images with alpha,
     else DXT1), BC1, BC3 or BGRA. A DDS that is already in the requested (or, for AUTO, any RE6) format is copied
-    without re-encoding; other DDS formats (BC7, BC5 ... DX10) are decoded and re-encoded"""
+    without re-encoding; other DDS formats (BC7, BC5 ... DX10) are decoded and re-encoded.
+    mipmaps=False keeps only the top level (a copied DDS is cut down to its first level)"""
     name = os.path.splitext(os.path.basename(path))[0]
     is_nm = tex_suffix(name) == 'NM'
-    src = ''
+    convert_nm = is_nm and normal_maps == 'CONVERT'
+    rgba = None
+    packed = False
+    if convert_nm:
+        # the pixels decide: R and B painted white = already DXT5nm, whatever the container format is
+        rgba = _load_rgba(path)
+        packed = is_dxt5nm(rgba)
     if path.lower().endswith('.dds'):
         with open(path, 'rb') as fh:
             data = fh.read()
         f = T.dds_format(data)
-        src = f.layout
-        if f.layout and compression in ('AUTO', LAYOUT_TARGET[f.layout]):
-            return T.assemble(f.width, f.height, f.mips, f.layout, T.default_fmt(name, f.layout), data[f.start:])
-    rgba = _load_rgba(path)
-    # a DXT5 normal map is taken to be DXT5nm already, everything else is a regular RGB (or BC5 RG) normal map
-    if is_nm and normal_maps == 'CONVERT' and src != T.BC3:
+        if f.layout and compression in ('AUTO', LAYOUT_TARGET[f.layout]) and (not convert_nm or packed):
+            payload, mips = data[f.start:], f.mips
+            if not mipmaps and mips > 1:
+                payload, mips = payload[:T.level_size(f.width, f.height, f.layout)], 1
+            return T.assemble(f.width, f.height, mips, f.layout, T.default_fmt(name, f.layout), payload)
+    if rgba is None:
+        rgba = _load_rgba(path)
+    if convert_nm and not packed:
         rgba = to_dxt5nm(rgba, flip_green)
     layout = TARGETS.get(compression) or (T.BC3 if (is_nm or (rgba[..., 3] < 255).any()) else T.BC1)
     if layout == T.BC1:
         rgba = rgba.copy()
         rgba[..., 3] = 255
-    return bc.build_tex(rgba, layout, T.default_fmt(name, layout))
+    return bc.build_tex(rgba, layout, T.default_fmt(name, layout), 0 if mipmaps else 1)
 
 
 TEX_DIR, DDS_DIR = 'Converted_RE6_Tex', 'Converted_RE6_DDS'
@@ -190,7 +206,7 @@ def convert_files(file_paths, out_dir_of, tp, targets=None):
                 prefix = DXT_NAMES.get(T.parse(raw).layout, '') + '_' if tp.addDXGIFormatPrefix else ''
             else:
                 data, out_ext, folder = (image_file_to_tex(p, (targets or {}).get(p, tp.compression), tp.normalMaps,
-                                                           tp.flipGreen), '.tex',
+                                                           tp.flipGreen, tp.generateMipmaps), '.tex',
                                          TEX_DIR)
                 prefix = ''
             dst_dir = out_dir_of(p, folder)
@@ -332,6 +348,7 @@ class RE6_OT_convert_tex_dds(Operator, ImportHelper):
         row = col.row(align=True)
         row.label(text=iface('Set All') + ':')
         row.prop(self, 'set_all', expand=True)
+        col.prop(context.scene.re6_mrl_toolpanel, 'generateMipmaps')
         col.separator()
         box = col.box().column(align=True)
         for line in (iface('BGRA8: lossless, 4x the size of DXT5 / 8x DXT1 (watch RE6 memory)'),
@@ -374,7 +391,7 @@ class RE6_OT_convert_settings(Operator):
         box = layout.box()
         col = box.column(align=True)
         for n in ('addConversionFolder', 'addDXGIFormatPrefix', 'openConvertedFolder', 'askFormat', 'compression',
-                  'normalMaps', 'flipGreen'):
+                  'normalMaps', 'flipGreen', 'generateMipmaps'):
             row = col.row(align=True)
             row.scale_y = 1.1
             row.prop(tp, n)

@@ -6,10 +6,18 @@ import argparse
 import json
 import math
 import os
+import sys
 from collections import Counter
 from pathlib import Path
 
 import bpy
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import internal_deps
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,13 +47,7 @@ def write_json(path: Path, payload: dict) -> None:
 
 
 def enable_addon(modules: tuple[str, ...]) -> None:
-    errors = []
-    for module in modules:
-        result = bpy.ops.preferences.addon_enable(module=module)
-        if "FINISHED" in result:
-            return
-        errors.append(f"{module}: {result}")
-    raise RuntimeError("Could not enable addon. Tried: " + "; ".join(errors))
+    internal_deps.ensure_modding_toolkit()
 
 
 def collection_meshes(

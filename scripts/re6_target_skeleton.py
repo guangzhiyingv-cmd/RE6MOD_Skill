@@ -13,35 +13,12 @@ from pathlib import Path
 
 import bpy
 
-
-RE6_ADDON = "re6_model_editor"
-ADDON_MODULES = (f"bl_ext.user_default.{RE6_ADDON}", RE6_ADDON)
+import internal_deps
 
 
 def enable_re6_addon() -> str:
-    """Enable the RE6 Model Editor and make its operators background-safe."""
-    errors = []
-    for module in ADDON_MODULES:
-        try:
-            result = bpy.ops.preferences.addon_enable(module=module)
-        except Exception as error:  # noqa: BLE001
-            errors.append(f"{module}: {error}")
-            continue
-        if "FINISHED" not in result:
-            errors.append(f"{module}: {result}")
-            continue
-        preferences = bpy.context.preferences.addons.get(module)
-        if preferences is not None and hasattr(
-            preferences.preferences,
-            "showConsole",
-        ):
-            # The add-on calls wm.console_toggle during import/export, which
-            # crashes Blender when it runs without a window.
-            preferences.preferences.showConsole = False
-        return module
-    raise RuntimeError(
-        "RE6 Model Editor is not available: " + "; ".join(errors)
-    )
+    """Load the skill's internal RE6 Model Editor and return its module name."""
+    return internal_deps.ensure_re6_model_editor().__name__
 
 
 def load_bone_semantics(path: Path) -> dict:

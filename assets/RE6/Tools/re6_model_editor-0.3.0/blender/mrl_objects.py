@@ -85,21 +85,22 @@ def mod_collection_of(mrl_col):
 
 
 def find_mrl_collection(context):
-    """MRL collection of the active object (an entry, or something of a model), else the active one of the tool panel,
-    else of the first model, else any"""
-    from .operators import active_model_collection
+    """MRL collection of the active object (an entry, or something of a model), else the active one of the tool panel; None when
+    neither tells (nothing is guessed: no "first model", no "any mrl of the file")"""
+    from .operators import model_of_active_object
     obj = context.object
     if obj:
         for c in obj.users_collection:
             if C.is_mrl(c):
                 return c
-    col = mrl_collection_of(active_model_collection(context))
+    model = model_of_active_object(context)
+    col = mrl_collection_of(model) if model is not None else None
     if col is not None:
         return col
     tp = context.scene.re6_mrl_toolpanel.mrlCollection
     if tp is not None and C.is_mrl(tp):
         return tp
-    return next(iter(C.mrl_collections()), None)
+    return None
 
 
 def active_entry(context):
@@ -123,9 +124,7 @@ def model_source(mrl_col):
 def make_finder(mrl_col, texture_dir=''):
     p = prefs.get()
     src = model_source(mrl_col) or mrl_col.get(K_SRC, '')
-    dirs = MT.find_game_dirs(src, p.game_paths() if p else ())
-    return MT.TextureFinder([texture_dir, p.texture_dir if p else '', os.path.dirname(src) if src else ''],
-                            dirs, MT.loose_roots(src, dirs) if src else ())
+    return MT.texture_finder(src, texture_dir, p.texture_dir if p else '', p.game_paths() if p else ())
 
 
 # --- creating entries -------------------------------------------------------------------------------------------
@@ -205,7 +204,8 @@ def model_visuals(model_col):
 
 def import_data(model_col, data, source, finder, pack=True, name=None, previews=True):
     """build the '<name>.mrl' collection below a model collection from .mrl bytes; the meshes' materials become the
-    preview materials of the entries. Returns (collection, textured entries, added entries)"""
+    preview materials of the entries. A material of the meshes that the .mrl does not have gets no entry (like the MHW Model Editor,
+    which only prints it; "Add Missing Materials" adds one on request). Returns (collection, textured entries, missing hashes)"""
     mrl = R.parse(data)
     old = mrl_collection_of(model_col)
     if old is not None and old is not model_col:
@@ -216,18 +216,16 @@ def import_data(model_col, data, source, finder, pack=True, name=None, previews=
     fill_collection(mrl_col, mrl)
     visuals = model_visuals(model_col)
     have = {int(o.re6_mrl_material.hash, 16): o for o in entries(mrl_col)}
-    added = 0
-    for h in visuals:
-        if h not in have:
-            have[h] = template_entry(mrl_col, h)
-            added += 1
+    missing = [h for h in visuals if h not in have]
     done = 0
     for h, mat in visuals.items():
-        obj = have[h]
+        obj = have.get(h)
+        if obj is None:
+            continue
         obj.re6_mrl_material.linkedMaterial = mat
         if previews and MT.build_visual(obj, finder, pack):
             done += 1
-    return mrl_col, done, added
+    return mrl_col, done, missing
 
 
 def remove_collection(col):
@@ -532,9 +530,9 @@ class RE6_OT_mrl_add_missing(_NeedsMrl, Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        from .operators import active_model_collection
         col = find_mrl_collection(context)
-        model = mod_collection_of(col) or active_model_collection(context)
+        tp_mod = context.scene.re6_mrl_toolpanel.modCollection
+        model = mod_collection_of(col) or (tp_mod if tp_mod is not None and C.is_mod(tp_mod) else None)
         if model is None:
             self.report({'ERROR'}, 'There is no model collection.')
             return {'CANCELLED'}

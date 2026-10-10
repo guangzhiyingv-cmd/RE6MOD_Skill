@@ -3,14 +3,15 @@
 
 """Operators of the chain layer (ctc_operators.py of the MHW Model Editor)."""
 import math
-import re
 
 import bpy
-from bpy.props import BoolProperty, FloatProperty, IntProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 from bpy.types import Operator
 from mathutils import Matrix, Vector
 
+from ..core import chain_ids as CI
 from ..core import ctc as K
+from . import bone_rename as BR
 from . import common as C
 from . import ctc_functions as F
 from . import ctc_properties as CP
@@ -116,18 +117,6 @@ class RE6_OT_switch_to_object_mode(Operator):
 
 # --- chains from bones -----------------------------------------------------------------------------------------------------
 
-FIRST_CHAIN_ID = 100            # Rename Chain Bones counts from here
-
-
-def next_free_start(start, count, used):
-    """the first id >= start (wrapping to FIRST_CHAIN_ID) where `count` ids in a row are not used; start when there is none"""
-    top = C.MAX_BONE_FUNCTION - count + 1
-    for s in list(range(max(start, 0), top + 1)) + list(range(FIRST_CHAIN_ID, min(start, top + 1))):
-        if not any(s + k in used for k in range(count)):
-            return s
-    return min(start, C.MAX_BONE_FUNCTION)
-
-
 def _bone_chain(bone):
     """bone and its descendants; None when a bone has more than one child"""
     out = [bone]
@@ -199,16 +188,37 @@ class RE6_OT_create_chain_from_bone(Operator):
         return {'FINISHED'}
 
 
+def _wrap_ids(ids, width=46):
+    """the ids as lines of ranges ("56-59, 98-99, ...") that fit a dialog"""
+    lines, cur = [], ''
+    for part in CI.format_runs(ids).split(', '):
+        if cur and len(cur) + len(part) + 2 > width:
+            lines.append(cur)
+            cur = ''
+        cur = part if not cur else cur + ', ' + part
+    return lines + ([cur] if cur else [])
+
+
 class RE6_OT_rename_chain_bones(Operator):
     bl_label = 'Rename Chain Bones'
     bl_idname = 're6_ctc.rename_chain_bones'
     bl_description = ('Rename all bones in a chain with format "RE6Bone_xxx".\nIf a ctc chain has been created, all node names '
-                      'in the chain will also be renamed.\nCheck button on the right for detailed settings')
+                      'in the chain will also be renamed.\nThe IDs are taken from the range that is available for the chosen '
+                      'character and part; an ID outside of it is refused.\nCheck button on the right for detailed settings')
     bl_options = {'UNDO'}
 
-    newStartBoneID: IntProperty(name='Start Bone ID', default=FIRST_CHAIN_ID, min=0, max=C.MAX_BONE_FUNCTION,
-                                description='Current chain will be renamed with the ID entered, counting up from the first bone.'
-                                            '\nIt is filled in with the next free IDs after the last renamed chain')
+    character: EnumProperty(name='Character', items=[(i, l, '') for i, l, _ in CI.CHARACTERS],
+                            description='Which IDs may be used.\nGeneric is the most conservative choice: only IDs that are free '
+                                        'in every character\nA character offers all IDs that nothing of that character uses')
+    part: EnumProperty(name='Part', items=[(i, l, '') for i, l, _ in CI.PARTS],
+                       description='The part of the model (plXXz0 body, plXXz3 head) the chain is on.\nThe available IDs '
+                                   'depend on it')
+    newStartBoneID: IntProperty(name='Start Bone ID', default=0, min=0, max=C.MAX_BONE_FUNCTION,
+                                description='Current chain will be renamed with the ID entered, then the next available IDs of the '
+                                            'range, counting up from the first bone.\nIt must be inside the available range.'
+                                            '\nIt is filled in with the next free ID after the last renamed chain')
+
+    lastSel: StringProperty(options={'HIDDEN', 'SKIP_SAVE'})        # character / part the start ID was suggested for
 
     @classmethod
     def poll(cls, context):
@@ -219,6 +229,18 @@ class RE6_OT_rename_chain_bones(Operator):
         sel = list(context.selected_pose_bones or [])
         return _bone_chain(sel[0].bone) if len(sel) == 1 else None
 
+    def suggest(self, context):
+        chain = self.chain(context)
+        self.newStartBoneID = CI.suggest_start(self.pool(context, chain), context.scene.re6_ctc_toolpanel.nextChainBoneID,
+                                               len(chain) if chain else 1)
+        self.lastSel = self.character + self.part
+
+    def check(self, context):
+        """the dialog redraws on every change: another character / part moves the start ID into its range"""
+        if self.lastSel != self.character + self.part:
+            self.suggest(context)
+        return True
+
     def used_ids(self, context, chain=None):
         """ids of the bones of the armature, without the bones that are renamed"""
         arm = context.active_object
@@ -227,21 +249,45 @@ class RE6_OT_rename_chain_bones(Operator):
         skip = {b.name for b in chain or ()}
         return {C.bone_fn_id(b) for b in arm.data.bones if b.name not in skip}
 
+    def pool(self, context, chain=None):
+        """the ids of the chosen range that no other bone of the armature uses"""
+        return CI.free_pool(self.character, self.part, self.used_ids(context, chain))
+
     def invoke(self, context, event):
-        chain = self.chain(context)
-        self.newStartBoneID = next_free_start(context.scene.re6_ctc_toolpanel.nextChainBoneID,
-                                              len(chain) if chain else 1, self.used_ids(context, chain))
+        tp = context.scene.re6_ctc_toolpanel
+        self.character, self.part = tp.chainIdCharacter, tp.chainIdPart
+        self.suggest(context)
         return context.window_manager.invoke_props_dialog(self)
 
     def draw(self, context):
         layout = self.layout
-        used = self.used_ids(context, self.chain(context))
-        free = [i for i in range(FIRST_CHAIN_ID, C.MAX_BONE_FUNCTION + 1) if i not in used]
+        chain = self.chain(context)
+        count = len(chain) if chain else 1
+        pool = self.pool(context, chain)
+        layout.prop(self, 'character')
+        layout.prop(self, 'part')
         layout.prop(self, 'newStartBoneID')
-        layout.label(text='%s %d' % (iface('Count Of Unused IDs (100~254):'), len(free)))
-        layout.label(text=iface('Unused IDs (100~254):'))
-        for k in range(0, len(free), 10):
-            layout.label(text=', '.join(str(i) for i in free[k:k + 10]))
+        layout.label(text='%s %d' % (iface('Count Of Available IDs:'), len(pool)))
+        if self.newStartBoneID not in pool:
+            layout.label(text=iface('The start ID is outside of the available range.'), icon='ERROR')
+        elif len([i for i in pool if i >= self.newStartBoneID]) < count:
+            layout.label(text=iface('Not enough available IDs left from the start ID.'), icon='ERROR')
+        layout.label(text=iface('Available IDs:'))
+        for line in _wrap_ids(pool):
+            layout.label(text=line)
+
+    def error(self, e):
+        ch = iface(CI.label_of(CI.CHARACTERS, self.character))
+        pt = iface(CI.label_of(CI.PARTS, self.part))
+        if e.kind == 'empty':
+            C.show_error_message_box(iface('No available ID is left in the range of %s / %s.') % (ch, pt))
+        elif e.kind == 'outside':
+            C.show_error_message_box(iface('Bone ID %d is outside of the available range of %s / %s. Please select another '
+                                           'start ID.') % (e.args_[0], ch, pt))
+        else:
+            C.show_error_message_box(iface('The chain has %d bones, but only %d available IDs are left from ID %d in the range '
+                                           'of %s / %s. Please select another start ID.') % (e.args_[0], e.args_[1], e.args_[2], ch,
+                                                                                            pt))
 
     def execute(self, context):
         arm = context.active_object
@@ -253,9 +299,10 @@ class RE6_OT_rename_chain_bones(Operator):
         if bones is None:
             C.show_error_message_box(iface('Cannot have branching bones in a chain.'))
             return {'CANCELLED'}
-        ids = [self.newStartBoneID + k for k in range(len(bones))]
-        if ids[-1] > C.MAX_BONE_FUNCTION:
-            C.show_error_message_box(iface('Current start ID will result in too large bone IDs. Please select another start ID.'))
+        try:
+            ids = CI.pick_ids(self.pool(context, bones), self.newStartBoneID, len(bones))
+        except CI.ChainIdError as e:
+            self.error(e)
             return {'CANCELLED'}
         olds = [b.name for b in bones]
         news = ['%s%03d' % (C.BONE_PREFIX, i) for i in ids]
@@ -264,38 +311,11 @@ class RE6_OT_rename_chain_bones(Operator):
             C.show_error_message_box(iface('Current start ID will result in duplicate bone names. Please select another start '
                                            'ID.'))
             return {'CANCELLED'}
-        objs = [o for o in bpy.data.objects if o.get(C.TYPE) in (C.T_CTC_CHAIN, C.T_CTC_NODE, C.T_CTC_FRAME, C.T_CTC_HELPER)]
-        # the vertex groups of the meshes this armature deforms follow (renaming a Bone from Python does not do it)
-        skinned = [o for o in bpy.data.objects if o.type == 'MESH' and (
-            o.parent == arm or any(m.type == 'ARMATURE' and m.object == arm for m in o.modifiers))]
-        for o in skinned:
-            for old in olds:
-                g = o.vertex_groups.get(old)
-                if g is not None:
-                    g.name = '__tmp_' + old
-        for o in skinned:
-            for old, new in zip(olds, news):
-                g = o.vertex_groups.get('__tmp_' + old)
-                if g is not None:
-                    if new in o.vertex_groups:      # a group of that name exists already: keep both, report it
-                        g.name = old
-                        self.report({'WARNING'}, rpt('%s already has a vertex group %s, %s was not renamed.')
-                                    % (o.name, new, old))
-                    else:
-                        g.name = new
-        for b, old, new, fid in zip(bones, olds, news, ids):
-            b.name = '__tmp_' + old
-        for b, old, new, fid in zip(bones, olds, news, ids):
-            b.name = new
-            b[C.K_ID] = fid
-            for o in objs:
-                if old in o.name:
-                    o.name = o.name.replace(old, new)
-            for o in bpy.data.objects:
-                for c in o.constraints:
-                    if getattr(c, 'subtarget', '') == '__tmp_' + old:
-                        c.subtarget = new
-        context.scene.re6_ctc_toolpanel.nextChainBoneID = min(ids[-1] + 1, C.MAX_BONE_FUNCTION)
+        tp = context.scene.re6_ctc_toolpanel
+        tp.chainIdCharacter, tp.chainIdPart = self.character, self.part
+        # the same routine as Match Bone Names: bones, vertex groups, mirror names, chain / node / collision object names
+        BR.rename_bones(arm, dict(zip(olds, news)))
+        tp.nextChainBoneID = min(ids[-1] + 1, C.MAX_BONE_FUNCTION)
         self.report({'INFO'}, rpt('Renamed chain bones.'))
         return {'FINISHED'}
 
@@ -380,6 +400,10 @@ class RE6_OT_apply_angle_limit_ramp(Operator):
     maxIteration: IntProperty(name='Max Iteration', default=4, min=1,
                               description='The amount of ctc nodes until the angle limit radius is at it\'s maximum value')
 
+    reverse: BoolProperty(name='Reverse', default=False,
+                          description='Reverse the order of the ramp: the angle limit radius decreases as the node gets further '
+                                      'away instead of increasing')
+
     @classmethod
     def poll(cls, context):
         return any(o.get(C.TYPE) == C.T_CTC_CHAIN for o in context.selected_objects)
@@ -394,7 +418,8 @@ class RE6_OT_apply_angle_limit_ramp(Operator):
             return {'CANCELLED'}
         step = self.maxAngleLimit / self.maxIteration
         for chain in chains:
-            for i, node in enumerate(F.chain_nodes(chain)):
+            nodes = F.chain_nodes(chain)
+            for i, node in enumerate(reversed(nodes) if self.reverse else nodes):
                 node.re6_ctc_node.AngleLimitRadius = step * (i + 1) if i + 1 < self.maxIteration else self.maxAngleLimit
         self.report({'INFO'}, rpt('Applied angle limit ramp to selected ctc chains.'))
         return {'FINISHED'}
@@ -636,7 +661,8 @@ class RE6_OT_set_collision_flags(Operator):
     CollisionModelEnable: BoolProperty(name='Collision Model Enable', default=True,
                                        description='Whether the chain is allowed to collide with ccl file')
     CollisionVGroundEnable: BoolProperty(name='Collision VGround Enable', default=False,
-                                         description='Whether the chain is allowed to collide with the ground')
+                                         description='Whether the chain is allowed to collide with the ground. Disabled: never written,'
+                                                     ' the chains stay behind in scripted motions (e.g. crawling under an obstacle)')
 
     BITS = (('CollisionSelfEnable', 2), ('CollisionModelEnable', 4), ('CollisionVGroundEnable', 8))
 
@@ -648,7 +674,16 @@ class RE6_OT_set_collision_flags(Operator):
         v = context.active_object.re6_ctc_chain.CollisionAttrFlagValue
         for name, bit in self.BITS:
             setattr(self, name, bool(v & bit))
+        self.CollisionVGroundEnable = False
         return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        col = self.layout.column()
+        col.prop(self, 'CollisionSelfEnable')
+        col.prop(self, 'CollisionModelEnable')
+        row = col.row()
+        row.enabled = False        # greyed out: with VGround the chains stay behind in scripted motions (crawl under obstacles)
+        row.prop(self, 'CollisionVGroundEnable')
 
     def execute(self, context):
         targets = {context.active_object} | {o for o in context.selected_objects if o.get(C.TYPE) == C.T_CTC_CHAIN}
@@ -656,7 +691,7 @@ class RE6_OT_set_collision_flags(Operator):
             pg = o.re6_ctc_chain
             known = sum(b for _n, b in self.BITS)
             pg.CollisionAttrFlagValue = (pg.CollisionAttrFlagValue & ~known & 255) | sum(
-                b for n, b in self.BITS if getattr(self, n))
+                b for n, b in self.BITS if n != 'CollisionVGroundEnable' and getattr(self, n))
         self.report({'INFO'}, rpt('Set collision flags.'))
         return {'FINISHED'}
 

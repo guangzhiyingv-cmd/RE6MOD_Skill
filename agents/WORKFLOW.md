@@ -7,8 +7,9 @@ Never overwrite a successful stage.
 ## Stage 0: Environment And Source Inspection
 
 Run `scripts/check_environment.py` with
-`profiles/re6-pl0600.json`. It validates Blender 5.2, the `mmd_tools` and
-`re6_model_editor` add-ons, and every required RE6 asset.
+`profiles/re6-pl0600.json`. It validates Blender 5.2 and every required RE6
+asset. The `mmd_tools`, `Modding-Toolkit`, and `re6_model_editor` add-ons are
+loaded from `assets/RE6/Tools` inside the skill.
 
 Run `scripts/inspect_source.py` in Blender to produce
 `reports/source_inventory.json`. The report records source format, mesh count,

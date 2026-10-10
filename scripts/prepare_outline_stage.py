@@ -5,9 +5,17 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import sys
 from pathlib import Path
 
 import bpy
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import internal_deps
 
 
 OUTLINE_MATERIAL_NAME = "Outline"
@@ -42,9 +50,7 @@ def write_json(path: Path, payload: dict) -> None:
 
 
 def enable_addon(module: str) -> None:
-    result = bpy.ops.preferences.addon_enable(module=module)
-    if "FINISHED" not in result:
-        raise RuntimeError(f"Could not enable addon {module}: {result}")
+    internal_deps.ensure_modding_toolkit()
 
 
 def select_only(objects: list[bpy.types.Object]) -> None:

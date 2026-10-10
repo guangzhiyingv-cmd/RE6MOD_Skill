@@ -15,7 +15,8 @@ import zlib
 
 
 def jamcrc32(name: str) -> int:
-    return (zlib.crc32(name.encode('latin1')) & 0xFFFFFFFF) ^ 0xFFFFFFFF
+    # game names are ASCII (same bytes in utf-8); utf-8 also hashes Blender names with other characters (e.g. Chinese)
+    return (zlib.crc32(name.encode('utf-8')) & 0xFFFFFFFF) ^ 0xFFFFFFFF
 
 
 def name20(name: str) -> int:

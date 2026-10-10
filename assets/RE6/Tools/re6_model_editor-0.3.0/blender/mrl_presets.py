@@ -130,9 +130,9 @@ def read_preset(filepath):
         p = obj.re6_mrl_material
         p.hash, p.index = h['hash'], index
         p.shader, p.blend, p.depth, p.raster = h['shader'], h['blend'], h['depth'], h['raster']
-        p.blend_mode = {m[3]: m[0] for m in MT.P.BLEND_MODES}.get(p.blend, 'CUSTOM')
-        p.two_sided = int(p.raster, 16) == MT.RASTER_TWO_SIDED
-        p.depth_mode = {m[3]: m[0] for m in MT.P.DEPTH_MODES}.get(p.depth, 'CUSTOM')
+        p.blend_mode = MT.P.mode_of(MT.P.BLEND_MODES, p.blend)
+        p.raster_mode = MT.P.mode_of(MT.P.RASTER_MODES, p.raster)
+        p.depth_mode = MT.P.mode_of(MT.P.DEPTH_MODES, p.depth)
         for k, v in h['flags'].items():
             if k in R.FIELDS:
                 setattr(p, k, v)

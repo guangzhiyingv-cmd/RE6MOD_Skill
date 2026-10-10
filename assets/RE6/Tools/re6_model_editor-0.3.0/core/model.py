@@ -246,6 +246,17 @@ def _format_candidates():
 _CANDIDATES = _format_candidates()
 
 
+def declared_influences(slots: int, n_inf: int) -> int:
+    """Influence count written into the weightDynamics of a mesh whose vertex format has `slots` weight slots (1 + 8 * count).
+
+    The weight field has to match the layout (the game picks its skinning from it). Retail pairs every format with a fixed range:
+    2 slot formats always 2, 4 slot formats 1..4 (the real count), 8 slot formats 5..8 and never 4 or less (smaller meshes get a
+    4 slot format), so a mesh that is forced into an 8 slot format with only 4 influences is declared with 5.
+    """
+    low = {2: 2, 8: 5}.get(slots, 1)
+    return max(low, min(max(1, n_inf), slots))
+
+
 def choose_format(skeleton: bool, n_inf: int, n_uv: int, has_col: bool, shadow: bool) -> int:
     """smallest known vertex format that can hold the data"""
     kind = 'static' if not skeleton else ('rigid' if n_inf <= 1 else 'skin')
@@ -332,6 +343,25 @@ def _sphere_entry(pts, ref=np.zeros(3)):
     lo, hi = pts.min(0), pts.max(0)
     c = (lo + hi) / 2
     return tuple((c - ref).tolist()) + (float(np.linalg.norm(pts - c, axis=1).max()),)
+
+
+def group_sphere(parts, bone_world=None):
+    """Bounding sphere entry of a group: the centre of the box of its vertices relative to the bind position of the bone that
+    carries most of the group's weight (the head bone for a head, the wrist for a hand pose ...), then the farthest vertex.
+
+    Retail: with that bone as the reference the sphere covers the group in 98% of 1242 body/hand groups and in 100% of the main
+    head groups (median 6 cm off the box centre); with the root bone (id 0) it covers 10% / 24% and a head at the origin of the
+    root is then culled as soon as that sphere is off screen.
+    """
+    pts = np.concatenate([p.pos for p in parts])
+    ref = np.zeros(3)
+    if bone_world is not None and len(bone_world):
+        wt = np.zeros(len(bone_world))
+        for p in parts:
+            if p.ids is not None and p.w is not None:
+                np.add.at(wt, np.clip(np.asarray(p.ids).astype(int), 0, len(wt) - 1).ravel(), np.asarray(p.w, float).ravel())
+        ref = bone_world[int(np.argmax(wt))] if wt.any() else bone_world[0]
+    return _sphere_entry(pts, ref)
 
 
 def make_bbox(bone_index, local_pts):
@@ -423,6 +453,9 @@ def to_mod(model: Model, preserve_quantisation=True, quant=None) -> M.Mod211:
             cur = rm[b.fn_id]
             if cur == 0xFF or cur >= nb or bones[cur].fn_id != b.fn_id:
                 rm[b.fn_id] = b.index
+        for i in range(256):            # ids whose bone was deleted: retail never leaves a stale entry (a ctc node of that id would drive another bone)
+            if rm[i] != 0xFF and (rm[i] >= nb or bones[rm[i]].fn_id != i):
+                rm[i] = 0xFF
         remap = bytes(rm)
 
     # ---- meshes / vertex buckets -------------------------------------------------------------
@@ -549,7 +582,7 @@ def to_mod(model: Model, preserve_quantisation=True, quant=None) -> M.Mod211:
             bboxes.append(p.meta['bbox'][0] if untouched and p.meta.get('bbox') else make_bbox(255, p.pos))
             nbb = 1
         all_untouched &= untouched
-        infl = 0 if not skel else (1 if f.ids is None else max(1, min(n_inf, f.influences)))
+        infl = 0 if not skel else (1 if f.ids is None else declared_influences(f.influences, n_inf))
         if skel and p.fmt == fmt and (untouched or infl <= p.wd_infl <= max(f.influences, 1)):
             infl = p.wd_infl
         wd = (p.wd_hi << 8) | (p.wd_flags & 6) | (1 + 8 * infl)
@@ -568,13 +601,13 @@ def to_mod(model: Model, preserve_quantisation=True, quant=None) -> M.Mod211:
     # ---- groups / materials ---------------------------------------------------------------------
     gids = sorted({m.flags & 0xFFF for m in meshes})
     groups = bytearray()
-    bw0 = bind_positions(bones)[0] if skel else np.zeros(3)
+    bw_all = bind_positions(bones) if skel else None
     for g in gids:
         if g in model.groups:
             sph = model.groups[g]
         else:
-            pts = [p.pos for p in parts if p.group == g and not p.is_shadow and len(p.pos)]
-            sph = _sphere_entry(np.concatenate(pts), bw0) if pts else (0, 0, 0, 1.0)
+            gp = [p for p in parts if p.group == g and not p.is_shadow and len(p.pos)]
+            sph = group_sphere(gp, bw_all) if gp else (0, 0, 0, 1.0)
         groups += struct.pack('<iIIIffff', g, 0xCDCDCDCD, 0xCDCDCDCD, 0xCDCDCDCD, *sph)
 
     # ---- header ---------------------------------------------------------------------------------

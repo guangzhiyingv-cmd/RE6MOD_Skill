@@ -6,10 +6,18 @@ import argparse
 import heapq
 import importlib
 import json
+import sys
 from pathlib import Path
 
 import bpy
 import numpy as np
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import internal_deps
 
 
 PART_NAMES = ("body", "face", "hair")
@@ -42,13 +50,8 @@ def write_json(path: Path, payload: dict) -> None:
 
 
 def enable_addon(modules: tuple[str, ...]) -> str:
-    errors = []
-    for module in modules:
-        result = bpy.ops.preferences.addon_enable(module=module)
-        if "FINISHED" in result:
-            return module
-        errors.append(f"{module}: {result}")
-    raise RuntimeError("Could not enable addon. Tried: " + "; ".join(errors))
+    internal_deps.ensure_modding_toolkit()
+    return "Modding-Toolkit"
 
 
 def collection_meshes(collection_name: str) -> list[bpy.types.Object]:

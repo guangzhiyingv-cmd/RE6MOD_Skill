@@ -1,0 +1,53 @@
+{
+  "character": "Miyamoto Musashi (Awakened)",
+  "character_id": "ch001_50",
+  "base_path": "stm/art/model/character/ch0/ch001_50",
+  "inherit_bindings_from": "ch001_00",
+  "groups": [
+    {
+      "name": "00 Body",
+      "entries": [
+        {
+          "id": "ch001_50_00",
+          "mesh": "00/ch001_50_00.mesh.260209350",
+          "mdf2": [
+            "00/ch001_50_00.mdf2.51"
+          ],
+          "chain2": [
+            "00/ch001_50_00.chain2.17"
+          ],
+          "simplified": "user"
+        }
+      ]
+    },
+    {
+      "name": "10 Face",
+      "entries": [
+        {
+          "id": "ch001_50_10",
+          "mesh": "10/ch001_50_10.mesh.260209350",
+          "mdf2": [
+            "10/ch001_50_10.mdf2.51"
+          ],
+          "simplified": "user"
+        }
+      ]
+    },
+    {
+      "name": "20 Hair",
+      "entries": [
+        {
+          "id": "ch001_50_20",
+          "mesh": "20/ch001_50_20.mesh.260209350",
+          "mdf2": [
+            "20/ch001_50_20.mdf2.51"
+          ],
+          "chain2": [
+            "20/ch001_50_20.chain2.17"
+          ],
+          "simplified": "user"
+        }
+      ]
+    }
+  ]
+}

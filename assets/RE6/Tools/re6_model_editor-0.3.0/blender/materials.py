@@ -10,7 +10,6 @@ import struct
 
 import bpy
 
-from ..core import arc as A
 from ..core import mrl as R
 from ..core import cb_layouts as CL
 from ..core.hashes import slot_name
@@ -57,95 +56,63 @@ def find_game_dirs(filepath='', configured=()):
     return tuple(out)
 
 
-_index_cache = {}
-
-
-def game_index(game_dirs):
-    if not game_dirs:
-        return None
-    if game_dirs not in _index_cache:
-        name = 'arc_index_%s.json' % hashlib.md5('|'.join(game_dirs).encode()).hexdigest()[:10]
-        cache = os.path.join(bpy.utils.user_resource('CONFIG'), 're6_model_editor', name)
-        _index_cache.clear()
-        _index_cache[game_dirs] = A.GameIndex(game_dirs, cache)
-    return _index_cache[game_dirs]
-
-
-def find_mrl(filepath, game_dirs=()):
-    """(mrl bytes, where) of the material library of a model: <name>.mrl, else the first non empty <name>_N.mrl, looked
-    up next to the file and then in the game archives"""
+def find_mrl(filepath):
+    """(mrl bytes, where) of the material library of a model: <name>.mrl, else the first non empty <name>_N.mrl, looked up next
+    to the file only. An import reads what the user has on disk and never falls back to the game archives (the original
+    materials would end up in the collection and in the next export): (None, '') when nothing is there."""
     stem = os.path.splitext(filepath)[0]
-    vpath = virtual_path(filepath)
-    idx = game_index(game_dirs)
-    names = [''] + ['_%d' % i for i in range(4)]
     best = None
-    for suffix in names:
-        data = None
-        where = ''
+    for suffix in [''] + ['_%d' % i for i in range(4)]:
         p = stem + suffix + '.mrl'
-        if os.path.isfile(p):
-            with open(p, 'rb') as fh:
-                data = fh.read()
-            where = p
-        elif idx is not None and vpath and idx.has(vpath + suffix + '.mrl'):
-            data = idx.read(vpath + suffix + '.mrl')
-            where = 'arc:' + vpath + suffix + '.mrl'
-        if data is None:
+        if not os.path.isfile(p):
             continue
+        with open(p, 'rb') as fh:
+            data = fh.read()
         try:
             m = R.parse(data)
         except R.MrlError:
             continue
         if m.materials:
-            return data, where
-        best = best or (data, where)
+            return data, p
+        best = best or (data, p)
     return best if best else (None, '')
 
 
-def loose_roots(filepath, game_dirs=()):
-    """extracted folders next to the model that may hold .tex files: the model's own root (the folder above its
-    data/ folder) and the sub folders of every mod / game folder that have a data/ folder (uPlTex0600_2/data/...)"""
-    out = []
+def own_root(filepath):
+    """the folder above the data/ folder a model lies in (the root of its extracted tree), '' when it lies in none"""
     parts = os.path.dirname(os.path.abspath(filepath)).replace('\\', '/').split('/')
     for i in range(len(parts) - 1, -1, -1):
         if parts[i].lower() == 'data':
-            out.append('/'.join(parts[:i]))
-            break
-    for d in game_dirs:
-        try:
-            subs = sorted(os.listdir(d))
-        except OSError:
-            continue
-        for n in subs:
-            p = os.path.join(d, n)
-            if os.path.isdir(os.path.join(p, 'data')) and p not in out:
-                out.append(p)
-    return out
+            return '/'.join(parts[:i])
+    return ''
+
+
+def texture_finder(filepath='', texture_dir='', pref_texture_dir='', game_paths=()):
+    """the finder of an import: the folder the user picked, the model's own root, the model's folder, then the folders of the
+    preferences (the order of the MHW Model Editor: what belongs to the model comes before what is configured for everything)"""
+    own = own_root(filepath) if filepath else ''
+    here = os.path.dirname(filepath) if filepath else ''
+    return TextureFinder([texture_dir, own, here, pref_texture_dir, *game_paths], [texture_dir, here, pref_texture_dir])
 
 
 class TextureFinder:
-    """finds the .tex of a texture path: exact path in the folders, exact path in the archives, then - for paths that
-    exist nowhere, like the custom folders of some mods - the file name alone in the folders and in the archives"""
+    """finds the .tex of a texture path of an MRL in the folders the user gave only (never in the game archives: an import reads
+    what is on disk), the way the MHW Model Editor does: the exact path below each of `folders` in order, then - for paths that
+    exist nowhere, like the custom folders of some mods - the bare file name directly inside each of `name_folders`
+    (no sub folders are searched)"""
 
-    def __init__(self, folders, game_dirs, walk_folders=()):
+    def __init__(self, folders, name_folders=()):
         self.folders = [f for f in folders if f and os.path.isdir(f)]
-        self.walk_folders = [f for f in walk_folders if f and os.path.isdir(f)]
-        self.index = game_index(game_dirs)
-        self._names = None
+        self.name_folders = [f for f in name_folders if f and os.path.isdir(f)]
+        self._listing = {}
 
-    def _walk(self):
-        if self._names is None:
-            self._names = {}
-            seen = 0
-            for root in self.walk_folders + self.folders:
-                for dp, _dn, files in os.walk(root):
-                    for f in files:
-                        if f.lower().endswith('.tex'):
-                            self._names.setdefault(f.lower(), os.path.join(dp, f))
-                    seen += len(files)
-                    if seen > 60000:
-                        break
-        return self._names
+    def _names_in(self, folder):
+        if folder not in self._listing:
+            try:
+                self._listing[folder] = {f.lower(): f for f in os.listdir(folder) if f.lower().endswith('.tex')}
+            except OSError:
+                self._listing[folder] = {}
+        return self._listing[folder]
 
     @staticmethod
     def _load(p):
@@ -155,21 +122,17 @@ class TextureFinder:
     def read(self, path):
         """bytes of the .tex for a texture path of the MRL, None when it cannot be found"""
         rel = path.replace('\\', '/').strip('/')
-        base = rel.rsplit('/', 1)[-1] + '.tex'
-        for f in self.folders + self.walk_folders:
+        for f in self.folders:
             cand = os.path.join(f, rel + '.tex')
             if os.path.isfile(cand):
                 return self._load(cand)
-        if self.index is not None and self.index.has(rel + '.tex'):
-            return self.index.read(rel + '.tex')
-        hit = self._walk().get(base.lower())
-        if hit:
-            return self._load(hit)
-        if self.index is not None:
-            key = self.index.find_name(base)
-            if key:
-                return self.index.read(key)
+        base = (rel.rsplit('/', 1)[-1] + '.tex').lower()
+        for f in self.name_folders:
+            hit = self._names_in(f).get(base)
+            if hit:
+                return self._load(os.path.join(f, hit))
         return None
+
 
 
 # --- images -----------------------------------------------------------------------------------------------
@@ -387,10 +350,9 @@ def store_material(obj, mm, mrl=None, index=0, bindings=None):
     p.index = index
     p.shader = '%08x' % mm.type
     p.blend, p.depth, p.raster = '%08x' % mm.blend, '%08x' % mm.depth, '%08x' % mm.raster
-    known = {m[3]: m[0] for m in P.BLEND_MODES}
-    p.blend_mode = known.get(p.blend, 'CUSTOM')
-    p.two_sided = mm.raster == RASTER_TWO_SIDED
-    p.depth_mode = {m[3]: m[0] for m in P.DEPTH_MODES}.get(p.depth, 'CUSTOM')
+    p.blend_mode = P.mode_of(P.BLEND_MODES, p.blend)
+    p.raster_mode = P.mode_of(P.RASTER_MODES, p.raster)
+    p.depth_mode = P.mode_of(P.DEPTH_MODES, p.depth)
     for k, v in R.unpack_flags(mm.flags, mm.unk_1c).items():
         setattr(p, k, bool(v) if isinstance(getattr(p, k), bool) else v)
     p.mapList_items.clear()

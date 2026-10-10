@@ -146,7 +146,9 @@ Check the parents of the bones.""",
 
     'IncorrectBoneNameFormat': """Incorrect Bone Name Format
 ERROR INFO:
-The bone id (the number at the end of "RE6Bone_xxx") exceeds the maximum limit of 254.
+The id of a bone is the number in its name. Some bones are not named "RE6Bone_xxx" (xxx = three digits),
+or the number exceeds the maximum limit of 254.
+Bones named like "RE6Bone_050.001" are only accepted with the "Allow Duplicate Bone Names" option.
 ——————————————
 HOW TO FIX:
 Change the bone name to "RE6Bone_xxx", where xxx is the bone id, such as "RE6Bone_150".
