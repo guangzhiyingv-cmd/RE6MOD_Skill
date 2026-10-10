@@ -34,6 +34,12 @@ Run `scripts/prepare_split_stage.py`.
 8. Save `stage_01_split.blend` and report scale, source preset, pose,
    material assignments, deleted materials, and face-normal results.
 
+The cylindrical face-normal seam is restricted to the outer boundary loop.
+Eyes, mouth, teeth, tongue, and other inner holes must not receive a
+boundary/falloff transition. `outer_boundary_perimeter_ratio` selects boundary
+components whose perimeter is close enough to the largest outer loop; the
+default is `0.75`.
+
 Stop if a material cannot be assigned to the single body part, if the
 scale calibration is ambiguous, or if the face/body seam cannot be resolved.
 

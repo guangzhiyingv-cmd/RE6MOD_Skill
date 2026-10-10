@@ -239,6 +239,7 @@ def main() -> int:
                     "seam_neighbor_parts": ["body"],
                     "seam_match_distance": 0.001,
                     "seam_blend_distance": 0.02,
+                    "outer_boundary_perimeter_ratio": 0.75,
                     "allow_nearby_vertex_fallback": False,
                     "seam_normal_mode": "bilateral",
                     "strength": 1.0,

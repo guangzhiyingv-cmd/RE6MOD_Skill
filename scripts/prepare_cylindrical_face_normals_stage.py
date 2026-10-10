@@ -145,6 +145,115 @@ def boundary_vertex_mask(lv, ls, lt) -> np.ndarray:
     return boundary
 
 
+def boundary_components(
+    lv,
+    ls,
+    lt,
+    world_co,
+) -> list[dict]:
+    """Connected boundary-edge components with their world-space perimeter."""
+    edge_counts: dict[tuple[int, int], int] = {}
+    for start, total in zip(ls, lt):
+        for offset in range(int(total)):
+            a = int(lv[int(start) + offset])
+            b = int(lv[int(start) + (offset + 1) % int(total)])
+            key = (a, b) if a < b else (b, a)
+            edge_counts[key] = edge_counts.get(key, 0) + 1
+
+    boundary_edges = [
+        edge for edge, count in edge_counts.items() if count == 1
+    ]
+    adjacency: dict[int, list[int]] = {}
+    for a, b in boundary_edges:
+        adjacency.setdefault(a, []).append(b)
+        adjacency.setdefault(b, []).append(a)
+
+    seen = set()
+    components = []
+    for start in sorted(adjacency):
+        if start in seen:
+            continue
+        stack = [start]
+        vertices = []
+        seen.add(start)
+        while stack:
+            vertex = stack.pop()
+            vertices.append(vertex)
+            for neighbor in adjacency[vertex]:
+                if neighbor not in seen:
+                    seen.add(neighbor)
+                    stack.append(neighbor)
+
+        vertex_set = set(vertices)
+        edges = {
+            edge
+            for edge in boundary_edges
+            if edge[0] in vertex_set or edge[1] in vertex_set
+        }
+        perimeter = sum(
+            float(np.linalg.norm(world_co[a] - world_co[b]))
+            for a, b in edges
+        )
+        components.append(
+            {
+                "vertices": len(vertices),
+                "edges": len(edges),
+                "perimeter": perimeter,
+                "vertex_indices": vertices,
+            }
+        )
+    components.sort(key=lambda item: item["perimeter"], reverse=True)
+    return components
+
+
+def outer_boundary_vertex_mask(
+    lv,
+    ls,
+    lt,
+    world_co,
+    perimeter_ratio: float,
+) -> tuple[np.ndarray, list[dict], list[dict]]:
+    """Mask only the outer boundary components, excluding holes."""
+    if not 0.0 < perimeter_ratio <= 1.0:
+        raise RuntimeError(
+            "outer_boundary_perimeter_ratio must be greater than 0 and "
+            "at most 1."
+        )
+    components = boundary_components(lv, ls, lt, world_co)
+    if not components:
+        return (
+            np.zeros(len(world_co), dtype=bool),
+            [],
+            [],
+        )
+    maximum = float(components[0]["perimeter"])
+    threshold = maximum * perimeter_ratio
+    selected = [
+        component
+        for component in components
+        if float(component["perimeter"]) + 1e-15 >= threshold
+    ]
+    mask = np.zeros(len(world_co), dtype=bool)
+    for component in selected:
+        mask[np.asarray(component["vertex_indices"], dtype=np.int64)] = True
+    report_components = [
+        {
+            "vertices": int(component["vertices"]),
+            "edges": int(component["edges"]),
+            "perimeter": float(component["perimeter"]),
+        }
+        for component in components
+    ]
+    return mask, report_components, [
+        {
+            "vertices": int(component["vertices"]),
+            "edges": int(component["edges"]),
+            "perimeter": float(component["perimeter"]),
+        }
+        for component in selected
+    ]
+
+
 def material_vertex_flags(
     obj: bpy.types.Object,
     material_names: list[str],
@@ -453,6 +562,11 @@ def process_face_object(
     region_seam = bool(mask_materials) and bool(
         config.get("material_region_seam", False)
     )
+    boundary_vertices = boundary_vertex_mask(
+        face["lv"],
+        face["ls"],
+        face["lt"],
+    )
     if region_seam:
         # Single-mesh targets: the seam is a position cluster that carries
         # both masked (face) and unmasked (body) geometry.
@@ -464,15 +578,26 @@ def process_face_object(
         seam_clusters = np.flatnonzero(inside_clusters & outside_clusters)
         seam_mask = np.zeros(cluster_count, dtype=bool)
         seam_mask[seam_clusters] = True
-        boundary_vertices = seam_mask[face_vertex_cluster]
+        outer_boundary_vertices = seam_mask[face_vertex_cluster]
+        boundary_components_report = []
+        outer_boundary_components_report = []
     else:
-        boundary_vertices = boundary_vertex_mask(
+        perimeter_ratio = float(
+            config.get("outer_boundary_perimeter_ratio", 0.75)
+        )
+        (
+            outer_boundary_vertices,
+            boundary_components_report,
+            outer_boundary_components_report,
+        ) = outer_boundary_vertex_mask(
             face["lv"],
             face["ls"],
             face["lt"],
+            face["world_co"],
+            perimeter_ratio,
         )
         boundary_clusters = np.unique(
-            face_vertex_cluster[np.flatnonzero(boundary_vertices)]
+            face_vertex_cluster[np.flatnonzero(outer_boundary_vertices)]
         )
         seam_clusters = boundary_clusters[has_neighbor[boundary_clusters]]
 
@@ -484,7 +609,11 @@ def process_face_object(
                 "neighbor mesh inside seam_match_distance. Increase the "
                 "distance or enable allow_nearby_vertex_fallback after review."
             )
-        nearby = np.unique(face_vertex_cluster[has_neighbor[face_vertex_cluster]])
+        nearby = np.unique(
+            face_vertex_cluster[
+                has_neighbor[face_vertex_cluster] & outer_boundary_vertices
+            ]
+        )
         seam_clusters = nearby
         fallback_used = True
 
@@ -667,6 +796,12 @@ def process_face_object(
         "face_mesh": face_obj.name,
         "vertices": len(face["co"]),
         "boundary_vertices": int(boundary_vertices.sum()),
+        "outer_boundary_vertices": int(outer_boundary_vertices.sum()),
+        "boundary_components": boundary_components_report,
+        "outer_boundary_components": outer_boundary_components_report,
+        "outer_boundary_perimeter_ratio": float(
+            config.get("outer_boundary_perimeter_ratio", 0.75)
+        ),
         "seam_clusters": len(seam_cluster_list),
         "seam_vertices_on_face": int(
             np.isin(face_vertex_cluster, seam_cluster_array).sum()

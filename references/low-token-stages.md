@@ -7,7 +7,7 @@ decision is not covered here.
 | Stage | Script | Required result | Stop trigger |
 | --- | --- | --- | --- |
 | 0 | `check_environment.py`, `inspect_source.py` | RE6 environment and `source_inventory.json` | missing tool/asset, unreadable source, or unsupported adapter |
-| 1 | `prepare_split_stage.py` | calibrated single body, face normals applied and merged back, `stage_01_split.blend` | ambiguous material assignment, scale, pose, or face seam |
+| 1 | `prepare_split_stage.py` | calibrated single body, outer-boundary-only face normals applied and merged back, `stage_01_split.blend` | ambiguous material assignment, scale, pose, or face seam |
 | 1B | `normalize_source_rig_stage.py` | main bones normalized to MMD, physics bones untouched | missing or invalid AI main-bone mapping |
 | 2 | `align_skeleton_stage.py` | shoulder-aligned RE6 skeleton and palm-normal-validated finger cleanup | unresolved shoulder bone, thumb handling, palm-normal mismatch, or finger cleanup |
 | 3 | `prepare_rig_stage.py` | single `pl0600.mod` collection, renamed physics bones, physics map, weighted rig | unknown bone role, over 92 physics bones, invalid weights |

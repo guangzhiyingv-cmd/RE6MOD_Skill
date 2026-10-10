@@ -47,7 +47,9 @@ Blender 5.2 itself is the only external runtime.
   to MMD names. Physics bones keep their names and hierarchy until Stage 3.
 - Stage 1 calibrates the source, separates materials, performs the cylindrical
   face-normal pass on the face group, then merges the face back into the single
-  body part.
+  body part. Only the outer face boundary, where the face meets other skin,
+  receives the seam falloff. Inner holes such as eyes and the mouth keep no
+  boundary transition.
 - Stage 2 aligns the RE6 `pl0600` target skeleton by shoulder-bone height.
   The RE6 skeleton uses numbered names; use
   [assets/RE6/RE6.json](assets/RE6/RE6.json) for bone semantics.

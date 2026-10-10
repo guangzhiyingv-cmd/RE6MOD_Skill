@@ -116,7 +116,8 @@
     ]
   },
   "cylindrical_face_normals": {
-    "stage": "stage_1"
+    "stage": "stage_1",
+    "outer_boundary_perimeter_ratio": 0.75
   },
   "mrl": {
     "texture_dir": "data/chara/pl/pl0600/gzyv",
