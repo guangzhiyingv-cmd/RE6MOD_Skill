@@ -11,6 +11,7 @@ import importlib
 import math
 
 import bpy
+from mathutils import Vector
 
 import source_rig_utils
 
@@ -19,6 +20,7 @@ FINGER_CHAINS = ("thumb", "index", "middle", "ring", "pinky")
 FINGER_SEGMENTS = ("01", "02", "03")
 SIDES = ("L", "R")
 AXIS_INDEX = {"X": 0, "Y": 1, "Z": 2}
+CURL_EPSILON = 1.0e-5
 
 
 def finger_semantic_keys() -> list[str]:
@@ -53,20 +55,60 @@ def _set_rotation(pose_bone, axis: str, degrees: float) -> None:
     pose_bone.rotation_euler = values
 
 
-def _side_metric(armature, chains: dict, wrist_name: str) -> float:
-    """Total distance from one hand's curled fingertips to its wrist.
-
-    Curling a finger inward brings the tip closer to the wrist, so the smaller
-    metric identifies the inward direction without depending on a rig
-    convention. It is measured per hand because mirrored left and right
-    fingers cancel out when both hands are summed.
-    """
-    bpy.context.view_layer.update()
-    wrist = armature.pose.bones[wrist_name].head
-    return sum(
-        (armature.pose.bones[names[-1]].tail - wrist).length
-        for names in chains.values()
+def _palm_normal(
+    armature,
+    side: str,
+    chains: dict,
+    hand_name: str,
+) -> Vector:
+    """Palm-side normal from the hand axis and thumb-to-pinky axis."""
+    hand = armature.pose.bones[hand_name]
+    distal = (hand.tail - hand.head).normalized()
+    thumb_head = armature.pose.bones[chains["thumb"][0]].head
+    pinky_head = armature.pose.bones[chains["pinky"][0]].head
+    radial = thumb_head - pinky_head
+    radial = radial - distal * radial.dot(distal)
+    if radial.length <= CURL_EPSILON:
+        raise RuntimeError(
+            f"Could not resolve the palm plane for hand {hand_name!r}."
+        )
+    radial.normalize()
+    normal = (
+        distal.cross(radial)
+        if side == "L"
+        else radial.cross(distal)
     )
+    if normal.length <= CURL_EPSILON:
+        raise RuntimeError(
+            f"Could not resolve the palm normal for hand {hand_name!r}."
+        )
+    return normal.normalized()
+
+
+def _curl_metrics(
+    armature,
+    bones: list[str],
+    chains: dict,
+    axis: str,
+    angle: float,
+    palm_normal: Vector,
+) -> dict:
+    """Signed fingertip movement toward the palm for both rotation signs."""
+    rest_tips = {
+        chain: armature.pose.bones[names[-1]].tail.copy()
+        for chain, names in chains.items()
+    }
+    metrics = {}
+    for sign in (1, -1):
+        _pose_all(armature, bones, axis, angle * sign)
+        bpy.context.view_layer.update()
+        metrics[str(sign)] = {
+            chain: (
+                armature.pose.bones[names[-1]].tail - rest_tips[chain]
+            ).dot(palm_normal)
+            for chain, names in chains.items()
+        }
+    return metrics
 
 
 def _pose_all(armature, bones: list[str], axis: str, degrees: float) -> None:
@@ -80,38 +122,81 @@ def _resolve_side_sign(
     side: str,
     bones: list[str],
     chains: dict,
-    wrist_name: str,
+    hand_name: str,
     axis: str,
     angle: float,
     requested: str,
 ) -> dict:
-    if requested in ("1", "+1"):
-        return {"sign": 1, "requested": requested, "metric": None}
-    if requested in ("-1",):
-        return {"sign": -1, "requested": requested, "metric": None}
-    if str(requested).lower() in ("mirrored", "mmd"):
-        # Mirrored MMD rigs curl inward with opposite local-X signs, so the
-        # left and right hands need mirrored values.
-        return {
-            "sign": -1 if side == "L" else 1,
-            "requested": str(requested),
-            "metric": None,
-        }
-    if str(requested).lower() != "auto":
+    palm_normal = _palm_normal(
+        armature,
+        side,
+        chains,
+        hand_name,
+    )
+    metrics = _curl_metrics(
+        armature,
+        bones,
+        chains,
+        axis,
+        angle,
+        palm_normal,
+    )
+    positive_min = min(metrics["1"].values())
+    negative_min = min(metrics["-1"].values())
+    if max(positive_min, negative_min) <= CURL_EPSILON:
+        raise RuntimeError(
+            f"No inward finger rotation direction was found for "
+            f"{hand_name!r}: {metrics}"
+        )
+    measured_sign = 1 if positive_min >= negative_min else -1
+    chosen = metrics[str(measured_sign)]
+    outward = {
+        chain: value
+        for chain, value in chosen.items()
+        if value <= CURL_EPSILON
+    }
+    if outward:
+        raise RuntimeError(
+            f"Not every finger curls toward the palm of {hand_name!r}: "
+            f"{outward}"
+        )
+
+    requested_value = str(requested).lower()
+    if requested_value in ("1", "+1"):
+        if measured_sign != 1:
+            raise RuntimeError(
+                f"finger_cleanup requested +1 for {hand_name!r}, but "
+                "palm-normal validation requires -1."
+            )
+    elif requested_value == "-1":
+        if measured_sign != -1:
+            raise RuntimeError(
+                f"finger_cleanup requested -1 for {hand_name!r}, but "
+                "palm-normal validation requires +1."
+            )
+    elif requested_value in ("mirrored", "mmd", "auto"):
+        pass
+    else:
         raise RuntimeError(
             "finger_cleanup.sign must be auto, mirrored, 1 or -1: "
             f"{requested!r}"
         )
-    _pose_all(armature, bones, axis, angle)
-    positive = _side_metric(armature, chains, wrist_name)
-    _pose_all(armature, bones, axis, -angle)
-    negative = _side_metric(armature, chains, wrist_name)
-    sign = 1 if positive <= negative else -1
-    return {
-        "sign": sign,
-        "requested": "auto",
-        "metric": {"positive": positive, "negative": negative},
+
+    report = {
+        "sign": measured_sign,
+        "requested": str(requested),
+        "palm_normal": list(palm_normal),
+        "curl_metrics": metrics,
+        "validation": {
+            "minimum_toward_palm": min(chosen.values()),
+            "maximum_toward_palm": max(chosen.values()),
+        },
     }
+    if requested_value in ("mirrored", "mmd"):
+        mirrored_hint = -1 if side == "L" else 1
+        report["mirrored_hint"] = mirrored_hint
+        report["hint_corrected"] = measured_sign != mirrored_hint
+    return report
 
 
 def apply_finger_cleanup(

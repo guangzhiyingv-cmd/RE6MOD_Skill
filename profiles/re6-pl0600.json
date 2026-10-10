@@ -109,7 +109,7 @@
     "enabled": true,
     "angle_degrees": 20.0,
     "axis": "X",
-    "sign": "mirrored",
+    "sign": "auto",
     "keep_bones": [
       "thumb_01_L",
       "thumb_01_R"

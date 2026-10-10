@@ -53,7 +53,9 @@ Blender 5.2 itself is the only external runtime.
   [assets/RE6/RE6.json](assets/RE6/RE6.json) for bone semantics.
 - Stage 2 also rotates every finger phalanx inward by 20 degrees, leaves
   `thumb_01_L` and `thumb_01_R` unrotated, then deletes the finger bones and
-  merges their weights into the corresponding hand.
+  merges their weights into the corresponding hand. The curl sign must be
+  resolved from the palm-plane normal, and every fingertip must move toward
+  the palm before the finger cleanup is accepted.
 - Stage 3 processes physics bones. Rename them to `RE6Bone_<id>`, use ids
   `213-249` first and then `135-189`, and keep the total physics-bone count at
   or below 92. Merge unneeded physics bones into their parents before using

@@ -61,7 +61,9 @@ Run `scripts/align_skeleton_stage.py`.
 3. Align model height by shoulder-bone height, not by the whole model box.
 4. Transfer the source mesh to the aligned target armature.
 5. Rotate every finger phalanx inward by 20 degrees. Each bone receives
-   20 degrees, not 20 degrees per chain.
+   20 degrees, not 20 degrees per chain. Resolve the sign per hand from the
+   palm-plane normal and require every fingertip to move toward the palm;
+   never trust mirrored local-axis signs without this validation.
 6. Do not rotate `thumb_01_L` or `thumb_01_R`, but still delete them.
 7. Delete all finger bones and merge their weights into `hand_L` and
    `hand_R`.
@@ -199,6 +201,7 @@ Stop and request review when:
 - a material cannot be assigned to the single body
 - source scale or shoulder alignment is ambiguous
 - a weighted bone cannot be mapped or connected
+- the palm-normal finger-curl validation fails
 - a mesh has zero-weight vertices after rebinding
 - the face seam or cylindrical normal field cannot be validated
 - a physics chain candidate is branching or semantically ambiguous
