@@ -41,6 +41,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", type=Path)
     parser.add_argument("--ctc", type=Path)
     parser.add_argument("--mod-root", type=Path)
+    parser.add_argument(
+        "--rebuild-existing-ctc",
+        action="store_true",
+        help=(
+            "Explicitly remove an existing RE6 CTC collection before "
+            "rebuilding it with the plugin."
+        ),
+    )
     return parser.parse_args(argv[separator:])
 
 
@@ -312,7 +320,24 @@ def main() -> int:
     angle_end = float(node_config.get("angle_limit_end_degrees", 60.0))
     collision_radius = float(node_config.get("collision_radius", 2.5))
     collision_shape = int(node_config.get("collision_shape", 1))
-    remove_existing_ctc_objects()
+    existing_ctc_collections = [
+        item
+        for item in bpy.data.collections
+        if item.get("~TYPE") == CTC_COLLECTION_TYPE
+    ]
+    removed_ctc_collections = [
+        item.name for item in existing_ctc_collections
+    ]
+    if existing_ctc_collections and not args.rebuild_existing_ctc:
+        raise RuntimeError(
+            "The input blend already contains an RE6 CTC collection: "
+            + ", ".join(item.name for item in existing_ctc_collections)
+            + ". Stage 8 normally starts from Stage 7 without CTC data. "
+            "Pass --rebuild-existing-ctc only when rebuilding a "
+            "user-modified CTC project."
+        )
+    if existing_ctc_collections:
+        remove_existing_ctc_objects()
     chain_source = "created_with_plugin_operators"
     chains_report = []
     skipped = []
@@ -418,6 +443,7 @@ def main() -> int:
         "ctc": str(ctc_path),
         "ctc_collection": collection.name,
         "chain_source": chain_source,
+        "removed_existing_ctc_collections": removed_ctc_collections,
         "bone_map": str(map_path),
         "chain_count": len(ctc.chains),
         "node_count": ctc.node_count,
