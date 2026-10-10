@@ -196,8 +196,53 @@ def base_image_for_material(
     return base_node.image.name, resolved
 
 
+def fallback_base_image(
+    material: bpy.types.Material,
+    fallback_dir: Path,
+) -> tuple[str, str] | None:
+    """Create a flat-color Base Color image for an untextured material."""
+    if material.use_nodes is False or material.node_tree is None:
+        material.use_nodes = True
+    if material.node_tree is None:
+        return None
+
+    safe_name = "".join(
+        character if character.isalnum() else "_"
+        for character in material.name
+    ).strip("_") or "material"
+    name = f"{safe_name}_fallback"
+    fallback_dir.mkdir(parents=True, exist_ok=True)
+    path = fallback_dir / f"{name}.png"
+    image = bpy.data.images.get(name)
+    if image is None:
+        image = bpy.data.images.new(
+            name,
+            width=1,
+            height=1,
+            alpha=True,
+        )
+    color = list(material.diffuse_color)[:3]
+    if len(color) < 3:
+        color = [1.0, 1.0, 1.0]
+    image.pixels.foreach_set(
+        [color[0], color[1], color[2], 1.0]
+    )
+    image.filepath_raw = str(path)
+    image.file_format = "PNG"
+    image.save()
+
+    node = material.node_tree.nodes.get("mmd_base_tex")
+    if node is None:
+        node = material.node_tree.nodes.new("ShaderNodeTexImage")
+        node.name = "mmd_base_tex"
+        node.label = "Mmd Base Tex"
+    node.image = image
+    return image.name, str(path.resolve())
+
+
 def material_base_groups(
     meshes: list[bpy.types.Object],
+    fallback_dir: Path,
 ) -> tuple[dict[str, dict], list[dict]]:
     groups = {}
     unresolved = []
@@ -216,15 +261,20 @@ def material_base_groups(
                 continue
             base_image = base_image_for_material(material)
             if base_image is None:
-                unresolved.append(
-                    {
-                        "mesh": obj.name,
-                        "slot": slot_index,
-                        "material": material.name,
-                        "reason": "Base Color image could not be resolved",
-                    }
-                )
-                continue
+                base_image = fallback_base_image(material, fallback_dir)
+                if base_image is None:
+                    unresolved.append(
+                        {
+                            "mesh": obj.name,
+                            "slot": slot_index,
+                            "material": material.name,
+                            "reason": (
+                                "Base Color image could not be resolved "
+                                "and fallback creation failed"
+                            ),
+                        }
+                    )
+                    continue
             image_name, image_path = base_image
             key = (
                 obj.name,
@@ -273,8 +323,9 @@ def choose_canonical_materials(
 
 def merge_materials_by_base_image(
     meshes: list[bpy.types.Object],
+    fallback_dir: Path,
 ) -> tuple[dict, list[dict]]:
-    groups, unresolved = material_base_groups(meshes)
+    groups, unresolved = material_base_groups(meshes, fallback_dir)
     canonical = choose_canonical_materials(groups)
     merges = []
     mesh_reports = []
@@ -820,7 +871,10 @@ def main() -> int:
                 if not obj.name.endswith("_Outline")
             ]
             material_merge, unresolved_base_images = (
-                merge_materials_by_base_image(audit_meshes)
+                merge_materials_by_base_image(
+                    audit_meshes,
+                    project_root / "manual" / "fallback_base",
+                )
             )
         else:
             material_merge, unresolved_base_images = {}, []
@@ -965,7 +1019,7 @@ def main() -> int:
         "project": str(project_path),
         "input": str(input_path),
         "output": str(output_path),
-        "cleanup_script": str(cleanup_script),
+        "cleanup_script": str(Path(__file__).resolve()),
         "operator_result": list(result) if result else None,
         "before": before,
         "material_merge": material_merge,

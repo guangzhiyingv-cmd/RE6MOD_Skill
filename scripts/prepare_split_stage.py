@@ -551,6 +551,8 @@ def build_calibration(
 
 def join_objects(objects, name):
     """Join the given mesh objects into one and return the result."""
+    if not objects:
+        raise RuntimeError(f"No meshes were provided for {name}.")
     if bpy.context.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
     bpy.ops.object.select_all(action="DESELECT")
@@ -559,6 +561,12 @@ def join_objects(objects, name):
         obj.hide_viewport = False
         obj.select_set(True)
     bpy.context.view_layer.objects.active = objects[0]
+    if len(objects) == 1:
+        joined = objects[0]
+        joined.name = name
+        joined.data.name = f"{name}_mesh"
+        bpy.ops.object.material_slot_remove_unused()
+        return joined
     result = bpy.ops.object.join()
     if "CANCELLED" in result:
         raise RuntimeError(f"Could not join meshes into {name}: {result}")

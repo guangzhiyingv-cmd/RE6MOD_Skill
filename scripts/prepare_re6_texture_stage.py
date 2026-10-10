@@ -84,6 +84,10 @@ def base_color_image(material: bpy.types.Material):
     if not material.use_nodes:
         return None
     tree = material.node_tree
+    base_node = tree.nodes.get("mmd_base_tex")
+    if base_node is not None and base_node.type == "TEX_IMAGE":
+        if base_node.image is not None:
+            return base_node.image
     output = next(
         (
             node
@@ -102,6 +106,40 @@ def base_color_image(material: bpy.types.Material):
         if node.type == "TEX_IMAGE" and node.image is not None:
             return node.image
     return None
+
+
+def fallback_outline_image(
+    material: bpy.types.Material,
+    fallback_dir: Path,
+):
+    """Create the black Base Color image used by the outline material."""
+    if material.name != "Outline":
+        return None
+    if material.node_tree is None:
+        material.use_nodes = True
+    if material.node_tree is None:
+        return None
+    fallback_dir.mkdir(parents=True, exist_ok=True)
+    path = fallback_dir / "Outline_fallback.png"
+    image = bpy.data.images.get("Outline_fallback")
+    if image is None:
+        image = bpy.data.images.new(
+            "Outline_fallback",
+            width=1,
+            height=1,
+            alpha=True,
+        )
+    image.pixels.foreach_set([0.0, 0.0, 0.0, 1.0])
+    image.filepath_raw = str(path)
+    image.file_format = "PNG"
+    image.save()
+    node = material.node_tree.nodes.get("mmd_base_tex")
+    if node is None:
+        node = material.node_tree.nodes.new("ShaderNodeTexImage")
+        node.name = "mmd_base_tex"
+        node.label = "Mmd Base Tex"
+    node.image = image
+    return image
 
 
 def fit_size(width: int, height: int, limit: int) -> tuple[int, int]:
@@ -244,6 +282,11 @@ def main() -> int:
     failures = []
     for material in materials:
         image = base_color_image(material)
+        if image is None:
+            image = fallback_outline_image(
+                material,
+                project_root / "manual" / "fallback_base",
+            )
         if image is None:
             failures.append(
                 {

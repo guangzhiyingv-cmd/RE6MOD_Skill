@@ -171,6 +171,7 @@ def select_kept_physics_bones(
     plan = plan or {}
     excluded.extend(plan.get("exclusions") or [])
     drop_categories = set(plan.get("drop_categories") or ())
+    keep_categories = set(plan.get("keep_categories") or ())
     physics = classify_bones(armature, base_bones)["physics_bones"]
     kept = []
     dropped = []
@@ -183,7 +184,9 @@ def select_kept_physics_bones(
         if category in drop_categories:
             dropped.append(name)
             continue
-        if category is not None:
+        if category is not None and (
+            not keep_categories or category in keep_categories
+        ):
             kept.append(name)
             by_category.setdefault(category, []).append(name)
         else:

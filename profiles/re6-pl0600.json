@@ -178,7 +178,8 @@
         "ClothSkir",
         "ClothHuan",
         "ClothSH",
-        "スカート"
+        "スカート",
+        "裙"
       ],
       "Sleeves": [
         "ClothSleeve",
@@ -192,7 +193,8 @@
       ],
       "Hair": [
         "Hair",
-        "hair"
+        "hair",
+        "髪"
       ],
       "Ears": [
         "HeadEar",
