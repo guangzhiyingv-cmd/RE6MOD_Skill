@@ -256,6 +256,8 @@ folder, as shown by the project manifest.
   rotated, but all finger bones are still deleted and merged into `hand`.
 - Physics bones must fit the RE6 ranges `213-249` and `135-189`.
 - Stage 8 writes only the CTC. The final stage reuses the reference CCL.
+- Immediately before export, Stage 9 sets every mesh vertex format to
+  `IASkinTB4wt` through the RE6 Model Editor and verifies the stored value.
 - Stage 9 validates the exported MOD, MRL, CTC, textures, material hashes,
   and file placement.
 

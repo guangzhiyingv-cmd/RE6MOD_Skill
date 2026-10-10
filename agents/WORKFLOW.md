@@ -168,6 +168,9 @@ Run `scripts/prepare_re6_ctc_stage.py`.
 
 Run `scripts/auto_export_re6_stage.py`.
 
+0. Immediately before export, select every mesh in the RE6 mod collection and
+   run `re6_mod.set_vertex_format` with `IASkinTB4wt`. Verify that every mesh
+   stores the matching `Mod_Mesh_VertexFormat` value. Stop if any mesh fails.
 1. Copy the complete reference mod tree from
    `assets/RE6/参考标准mod/RE6 Shinano Official`.
 2. Delete the reference's own textures while preserving the target texture

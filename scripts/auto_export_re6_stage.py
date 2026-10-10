@@ -4,6 +4,8 @@ RE6 does not use the Modding Toolkit batch exporters, so this stage drives the
 add-on's own `re6_mod.export_re6_mod` operator, copies the finished `.mrl` and
 the reused `.ccl` next to it, writes `modinfo.ini`, and then re-parses every
 binary resource to prove the export matches what the earlier stages planned.
+Immediately before export, every mesh is assigned the ``IASkinTB4wt`` vertex
+format through the RE6 Model Editor operator.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ import re6_material_textures
 
 MOD_COLLECTION_TYPE = "RE6_MOD_COLLECTION"
 MODEL_DIR = "nativePC_mod/data/chara/pl/pl0600/model"
+EXPORT_VERTEX_FORMAT = "IASkinTB4wt"
 
 
 def parse_args() -> argparse.Namespace:
@@ -145,6 +148,91 @@ def seed_from_reference(
     }
 
 
+def apply_export_vertex_format(
+    collection: bpy.types.Collection,
+    addon_module: str,
+) -> dict:
+    """Set every exported mesh to IASkinTB4wt with the add-on operator."""
+    vertex_core = importlib.import_module(f"{addon_module}.core.vertex")
+    vertex_formats = importlib.import_module(
+        f"{addon_module}.blender.vertex_formats"
+    )
+    target_hashes = [
+        value
+        for value in vertex_core.FORMATS
+        if vertex_core.official_name(value) == EXPORT_VERTEX_FORMAT
+    ]
+    if len(target_hashes) != 1:
+        raise RuntimeError(
+            "Could not resolve one RE6 vertex format named "
+            f"{EXPORT_VERTEX_FORMAT!r}: {target_hashes}"
+        )
+    target_hash = target_hashes[0]
+    target_value = f"{target_hash:08x}"
+
+    meshes = [
+        obj for obj in collection.all_objects if obj.type == "MESH"
+    ]
+    if not meshes:
+        raise RuntimeError(
+            f"The RE6 mod collection {collection.name!r} has no meshes."
+        )
+    if not any(
+        obj.type == "ARMATURE" for obj in collection.all_objects
+    ):
+        raise RuntimeError(
+            f"The RE6 mod collection {collection.name!r} has no armature."
+        )
+
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    for selected in bpy.context.selected_objects:
+        selected.select_set(False)
+    for obj in meshes:
+        obj.hide_set(False)
+        obj.hide_viewport = False
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = meshes[0]
+
+    result = bpy.ops.re6_mod.set_vertex_format(
+        useAuto=False,
+        skinned=True,
+        weights="4",
+        uvCount=1,
+        useColor=False,
+        useTangent=True,
+        extraData=False,
+        vertexFormat=target_value,
+    )
+    if "FINISHED" not in result:
+        raise RuntimeError(
+            f"RE6 set_vertex_format failed: {result}"
+        )
+
+    stored = {
+        obj.name: vertex_formats.stored_format(obj.data)
+        for obj in meshes
+    }
+    mismatches = [
+        name
+        for name, value in stored.items()
+        if value != target_hash
+    ]
+    if mismatches:
+        raise RuntimeError(
+            "RE6 vertex format validation failed for: "
+            + ", ".join(sorted(mismatches))
+        )
+
+    return {
+        "name": EXPORT_VERTEX_FORMAT,
+        "hash": target_value,
+        "mesh_count": len(meshes),
+        "meshes": sorted(stored),
+        "operator_result": sorted(result),
+    }
+
+
 def main() -> int:
     args = parse_args()
     project_path = args.project.resolve()
@@ -185,6 +273,7 @@ def main() -> int:
     mrl_core = importlib.import_module(f"{addon_module}.core.mrl")
     ctc_core = importlib.import_module(f"{addon_module}.core.ctc")
     hashes = importlib.import_module(f"{addon_module}.core.hashes")
+    vertex_core = importlib.import_module(f"{addon_module}.core.vertex")
 
     collections = [
         item
@@ -197,6 +286,10 @@ def main() -> int:
         )
     collection = collections[0]
     importlib.import_module(f"{addon_module}.blender.operators")
+    vertex_format_report = apply_export_vertex_format(
+        collection,
+        addon_module,
+    )
     panel = bpy.context.scene.re6_mod_toolpanel
     panel.exportModCollection = collection
 
@@ -271,6 +364,14 @@ def main() -> int:
     ctc = ctc_core.parse(ctc_path.read_bytes())
     mod_hashes = [f"{value:08x}" for value in mod.materials]
     mrl_hashes = [f"{material.name:08x}" for material in mrl.materials]
+    mod_mesh_formats = [
+        {
+            "index": index,
+            "hash": f"{mesh.blocktype:08x}",
+            "name": vertex_core.official_name(mesh.blocktype),
+        }
+        for index, mesh in enumerate(mod.meshes)
+    ]
     bone_ids = sorted({row[0] for row in mod.bone_table()})
     texture_files = sorted(texture_dir.rglob("*.tex"))
     textures = sorted(path.name for path in texture_files)
@@ -328,6 +429,19 @@ def main() -> int:
         )
     if not mod.meshes:
         failures.append({"reason": "the exported .mod has no meshes"})
+    unexpected_vertex_formats = [
+        entry
+        for entry in mod_mesh_formats
+        if entry["hash"] != vertex_format_report["hash"]
+    ]
+    if unexpected_vertex_formats:
+        failures.append(
+            {
+                "reason": "the exported .mod contains an unexpected vertex format",
+                "expected": vertex_format_report["hash"],
+                "unexpected": unexpected_vertex_formats,
+            }
+        )
     if missing_textures:
         failures.append(
             {
@@ -359,6 +473,7 @@ def main() -> int:
         "model_dir": str(model_dir),
         "export_result": sorted(export_result),
         "seed": seed_report,
+        "vertex_format": vertex_format_report,
         "files": {
             "mod": str(mod_path),
             "mrl": mrl_paths,
@@ -371,6 +486,7 @@ def main() -> int:
             "meshes": len(mod.meshes),
             "materials": mod_hashes,
             "bone_ids": bone_ids,
+            "vertex_formats": mod_mesh_formats,
         },
         "mrl": {
             "materials": mrl_hashes,
@@ -405,6 +521,7 @@ def main() -> int:
         )
 
     manifest["settings"]["export_report"] = str(report_path)
+    manifest["settings"]["export_vertex_format"] = EXPORT_VERTEX_FORMAT
     for part_name in list(manifest.get("parts", {})):
         manifest["parts"][part_name]["status"] = "exported"
         manifest["parts"][part_name]["validation"] = "stage_09_export"
@@ -415,6 +532,8 @@ def main() -> int:
             "mod": str(mod_path),
             "bones": mod.boneCount,
             "meshes": len(mod.meshes),
+            "vertex_format": EXPORT_VERTEX_FORMAT,
+            "vertex_format_meshes": vertex_format_report["mesh_count"],
         }
     )
     write_json(project_path, manifest)
