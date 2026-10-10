@@ -285,7 +285,7 @@ def main() -> int:
                         "collision_shape": 1,
                     },
                     "chain": {
-                        "damping": 0.1,
+                        "damping": 0.02,
                         "limit_force": 100.0,
                         "col_group": 1,
                     },

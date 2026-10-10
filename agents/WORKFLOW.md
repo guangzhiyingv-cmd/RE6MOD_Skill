@@ -165,7 +165,8 @@ Run `scripts/prepare_re6_ctc_stage.py`.
 3. Create a fresh plugin CTC collection with
    `re6_ctc.create_ctc_collection`.
 4. Rebuild non-branching chains from the Stage 3 semantic categories as
-   plugin chain, node, and angle-limit-frame objects.
+   plugin chain, node, and angle-limit-frame objects. Set chain damping to
+   `0.02` for every physics chain.
 5. Write bone function ids using the `RE6Bone_<id>` names.
 6. Interpolate the angle limit linearly from 15 degrees at the first node to
    60 degrees at the last node.

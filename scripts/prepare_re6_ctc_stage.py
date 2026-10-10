@@ -197,7 +197,7 @@ def create_chain_with_plugin(
     collision_shape = int(node_config.get("collision_shape", 1))
     chain = ctc_core.Chain(
         colGroup=int(chain_config.get("col_group", 1)),
-        damping=float(chain_config.get("damping", 0.1)),
+        damping=float(chain_config.get("damping", 0.02)),
         limitForce=float(chain_config.get("limit_force", 100.0)),
     )
     nodes = []
