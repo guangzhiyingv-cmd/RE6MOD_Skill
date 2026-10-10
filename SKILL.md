@@ -74,6 +74,9 @@ execution is the default and is described in
   [assets/RE6/Null_NM.dds](assets/RE6/Null_NM.dds).
 - Stage 8 writes only the `.ctc`; reuse the reference `.ccl`. The angle limit
   interpolates from 15 degrees at the first node to 60 degrees at the last.
+  Remove any existing CTC plugin objects, rebuild the chains as RE6 Model
+  Editor CTC objects, and export them with `re6_ctc.export_re6_ctc`. Do not
+  serialize the `.ctc` directly from the Stage 8 script.
 - Stage 9 copies the reference mod tree, replaces the `.mod`, `.mrl`, and
   `.ctc`, deletes the reference textures, copies only our textures, reuses the
   reference `.ccl`, and writes `modinfo.ini` with `author=GZYV`.

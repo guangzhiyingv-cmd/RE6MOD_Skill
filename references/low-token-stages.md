@@ -15,7 +15,7 @@ decision is not covered here.
 | 5C | `finalize_mesh_cleanup_stage.py` | material mode applied, empty/orphan groups removed, no zero-weight vertices | unresolved material grouping or lost material assignment |
 | 6 | `prepare_mrl_stage.py` | 38-command mod materials, exact RE6 slot rules, `stages/pl0600.mrl` | non-English material without mapping, missing template slot |
 | 7 | `prepare_re6_texture_stage.py` | base color reduced 40 percent, BC1 `_BM`, BC3 `_NM` or shared `Null_NM` | non-BC1 base, oversized texture, missing base color |
-| 8 | `prepare_re6_ctc_stage.py` | non-branching `.ctc`, 15-to-60 degree interpolation | branching path or non-`RE6Bone_<id>` name |
+| 8 | `prepare_re6_ctc_stage.py` | old CTC removed, plugin CTC objects rebuilt, plugin-exported `.ctc`, 15-to-60 degree interpolation | plugin creation/export failure, branching path, or non-`RE6Bone_<id>` name |
 | 9 | `auto_export_re6_stage.py` | final `pl0600.mod`, `.mrl`, `.ctc`, reused `.ccl`, `modinfo.ini`, validation report | missing/extra texture, hash mismatch, parse failure |
 
 Keep the stage `.blend`, stage report, and `reports/run_state.json` after every

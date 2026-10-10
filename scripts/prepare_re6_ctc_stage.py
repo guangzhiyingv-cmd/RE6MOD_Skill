@@ -1,9 +1,10 @@
-"""Stage 8 for RE6: build the physics chains and write pl0600.ctc.
+"""Stage 8 for RE6: build physics chains through the RE6 Model Editor.
 
 The chains reference bones by function id, which is why Stage 3 renamed every
 physics bone to ``RE6Bone_<id>``. This stage rebuilds the non-branching bone
-paths inside each semantic category from the armature hierarchy and writes
-them as a .ctc. Collisions (.ccl) are reused from the reference mod later.
+paths inside each semantic category, creates them as plugin CTC objects, and
+exports the collection with the plugin exporter. Collisions (.ccl) are reused
+from the reference mod later.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import re6_target_skeleton
 
 BONE_PREFIX = "RE6Bone_"
 MOD_COLLECTION_TYPE = "RE6_MOD_COLLECTION"
+CTC_COLLECTION_TYPE = "RE6_CTC_COLLECTION"
 
 
 def parse_args() -> argparse.Namespace:
@@ -120,6 +122,128 @@ def build_paths(armature, category_bones: set[str]) -> tuple[list, list]:
     return paths, branch_stops
 
 
+def set_active_armature(armature) -> None:
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    armature.hide_set(False)
+    armature.hide_viewport = False
+    armature.select_set(True)
+    bpy.context.view_layer.objects.active = armature
+
+
+def remove_existing_ctc_objects() -> None:
+    """Remove old CTC plugin data so Stage 8 can rebuild it from scratch."""
+    ctc_object_types = {
+        "RE6_CTC_HEADER",
+        "RE6_CTC_CHAIN",
+        "RE6_CTC_NODE",
+        "RE6_CTC_NODE_FRAME",
+        "RE6_CTC_NODE_FRAME_HELPER",
+        "RE6_CTC_HELPER",
+    }
+    for obj in list(bpy.data.objects):
+        if obj.get("~TYPE") in ctc_object_types:
+            bpy.data.objects.remove(obj, do_unlink=True)
+
+    def remove_tree(collection) -> None:
+        for child in list(collection.children):
+            remove_tree(child)
+        bpy.data.collections.remove(collection)
+
+    for collection in list(bpy.data.collections):
+        if collection.get("~TYPE") == CTC_COLLECTION_TYPE:
+            remove_tree(collection)
+
+
+def create_ctc_collection(name: str):
+    result = bpy.ops.re6_ctc.create_ctc_collection(collectionName=name)
+    if "CANCELLED" in result:
+        raise RuntimeError(f"Could not create CTC collection: {result}")
+    collection = bpy.context.scene.re6_ctc_toolpanel.ctcCollection
+    if collection is None:
+        raise RuntimeError("The plugin did not expose the new CTC collection.")
+    return collection
+
+
+def create_chain_with_plugin(
+    armature,
+    collection,
+    header,
+    entry_col,
+    chain_index: int,
+    path: list[str],
+    chain_config: dict,
+    node_config: dict,
+    ctc_core,
+    ctc_functions,
+    ctc_operators,
+) -> tuple[object, list[float]]:
+    angle_start = float(
+        node_config.get("angle_limit_start_degrees", 15.0)
+    )
+    angle_end = float(
+        node_config.get("angle_limit_end_degrees", 60.0)
+    )
+    collision_radius = float(node_config.get("collision_radius", 2.5))
+    collision_shape = int(node_config.get("collision_shape", 1))
+    chain = ctc_core.Chain(
+        colGroup=int(chain_config.get("col_group", 1)),
+        damping=float(chain_config.get("damping", 0.1)),
+        limitForce=float(chain_config.get("limit_force", 100.0)),
+    )
+    nodes = []
+    degrees = []
+    for index, bone_name in enumerate(path):
+        ratio = (
+            index / float(len(path) - 1) if len(path) > 1 else 0.0
+        )
+        value = angle_start + (angle_end - angle_start) * ratio
+        degrees.append(round(value, 4))
+        fid = bone_id(bone_name)
+        if fid is None:
+            raise RuntimeError(f"Bone is not RE6Bone_<id>: {bone_name}")
+        nodes.append(
+            ctc_core.Node(
+                boneFunctionId=fid,
+                collisionShape=collision_shape,
+                boneColRadius=collision_radius,
+                angleLimitRadius=math.radians(value),
+            )
+        )
+    frames = [
+        (
+            ctc_operators.frame_rows_between(
+                armature,
+                armature.data.bones[bone_name],
+                (
+                    armature.data.bones[path[index + 1]]
+                    if index + 1 < len(path)
+                    else None
+                ),
+            ),
+            None,
+            0,
+        )
+        for index, bone_name in enumerate(path)
+    ]
+    chain_name = (
+        f"CTC_CHAIN_{chain_index:02d} - {path[0]} > {path[-1]}"
+    )
+    chain_obj = ctc_functions.make_chain(
+        bpy.context.scene.re6_ctc_toolpanel,
+        header,
+        entry_col,
+        armature,
+        chain_name,
+        chain,
+        nodes,
+        path,
+        frames,
+    )
+    return chain_obj, degrees
+
+
 def main() -> int:
     args = parse_args()
     project_path = args.project.resolve()
@@ -164,6 +288,12 @@ def main() -> int:
     bpy.ops.wm.open_mainfile(filepath=str(input_path), load_ui=False)
     addon_module = re6_target_skeleton.enable_re6_addon()
     ctc_core = importlib.import_module(f"{addon_module}.core.ctc")
+    ctc_functions = importlib.import_module(
+        f"{addon_module}.blender.ctc_functions"
+    )
+    ctc_operators = importlib.import_module(
+        f"{addon_module}.blender.ctc_operators"
+    )
     collection = next(
         (
             item
@@ -178,16 +308,28 @@ def main() -> int:
 
     node_config = ctc_config.get("node") or {}
     chain_config = ctc_config.get("chain") or {}
-    # The angle limit ramps from the chain root to its tip: tight at the
-    # attachment so the cloth cannot fold into the body, loose at the end.
     angle_start = float(node_config.get("angle_limit_start_degrees", 15.0))
     angle_end = float(node_config.get("angle_limit_end_degrees", 60.0))
     collision_radius = float(node_config.get("collision_radius", 2.5))
     collision_shape = int(node_config.get("collision_shape", 1))
-
-    ctc = ctc_core.Ctc()
+    remove_existing_ctc_objects()
+    chain_source = "created_with_plugin_operators"
     chains_report = []
     skipped = []
+    set_active_armature(armature)
+    collection = create_ctc_collection("pl0600")
+    header = ctc_functions.find_header(collection)
+    if header is None:
+        header = ctc_functions.create_header(
+            collection,
+            "CTC_HEADER pl0600.ctc",
+        )
+    entry_col = ctc_functions.entries_collection(
+        "Chain Entries",
+        collection,
+        make_new=True,
+    )
+    chain_index = 0
     for category, names in sorted(by_category.items()):
         category_bones = {
             name for name in names if name.startswith(BONE_PREFIX)
@@ -206,38 +348,35 @@ def main() -> int:
                     }
                 )
                 continue
-            chain = ctc_core.Chain(
-                colGroup=int(chain_config.get("col_group", 1)),
-                damping=float(chain_config.get("damping", 0.1)),
-                limitForce=float(chain_config.get("limit_force", 100.0)),
+            chain_obj, degrees = create_chain_with_plugin(
+                armature,
+                collection,
+                header,
+                entry_col,
+                chain_index,
+                path,
+                chain_config,
+                node_config,
+                ctc_core,
+                ctc_functions,
+                ctc_operators,
             )
-            degrees_per_node = []
-            for index, value in enumerate(ids):
-                ratio = (
-                    index / float(len(ids) - 1) if len(ids) > 1 else 0.0
-                )
-                degrees = angle_start + (angle_end - angle_start) * ratio
-                degrees_per_node.append(round(degrees, 4))
-                node = ctc_core.Node(
-                    boneFunctionId=int(value),
-                    collisionShape=collision_shape,
-                    boneColRadius=collision_radius,
-                    angleLimitRadius=math.radians(degrees),
-                )
-                chain.nodes.append(node)
-            ctc.chains.append(chain)
+            chain_index += 1
             chains_report.append(
                 {
                     "category": category,
+                    "object": chain_obj.name,
                     "nodes": len(ids),
                     "ids": ids,
                     "bones": path,
-                    "angle_limits_degrees": degrees_per_node,
+                    "angle_limits_degrees": degrees,
                 }
             )
+    ctc_functions.align_chains(collection)
+    ctc_functions.set_chain_bone_color(armature, collection)
 
-    if not ctc.chains:
-        raise RuntimeError("No physics chain could be built from the map.")
+    if not chains_report:
+        raise RuntimeError("No physics chain is available in the CTC collection.")
 
     ctc_path = (
         args.ctc.resolve()
@@ -246,31 +385,21 @@ def main() -> int:
         / "nativePC_mod/data/chara/pl/pl0600/model/pl0600.ctc"
     )
     ctc_path.parent.mkdir(parents=True, exist_ok=True)
-    ctc_path.write_bytes(ctc_core.serialize(ctc))
+    panel = bpy.context.scene.re6_ctc_toolpanel
+    panel.exportCTCCollection = collection
+    export_result = bpy.ops.re6_ctc.export_re6_ctc(
+        filepath=str(ctc_path),
+        exportCCL=False,
+    )
+    if "CANCELLED" in export_result or not ctc_path.is_file():
+        raise RuntimeError(
+            f"Plugin .ctc export failed: {export_result} -> {ctc_path}"
+        )
+    ctc = ctc_core.parse(ctc_path.read_bytes())
     # Keep a canonical copy inside the project: Stage 9 rebuilds the Mod root
     # from the reference mod and replaces the chains with this file.
     stage_copy = project_root / "stages" / "pl0600.ctc"
     stage_copy.write_bytes(ctc_path.read_bytes())
-
-    # Import the finished chains back into the .blend so the user can review
-    # them in the viewport before export. Stage 6 already did this for the
-    # material library.
-    bpy.ops.object.select_all(action="DESELECT")
-    armature.hide_set(False)
-    armature.hide_viewport = False
-    armature.select_set(True)
-    bpy.context.view_layer.objects.active = armature
-    ctc_result = bpy.ops.re6_ctc.import_re6_ctc(
-        filepath=str(ctc_path),
-        loadCCL=False,
-    )
-    if "CANCELLED" in ctc_result:
-        raise RuntimeError(
-            f"Could not import the finished .ctc: {ctc_path}"
-        )
-    imports = {
-        "ctc": {"path": str(ctc_path), "result": sorted(ctc_result)},
-    }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(output_path), compress=True)
@@ -287,13 +416,18 @@ def main() -> int:
         "input": str(input_path),
         "output": str(output_path),
         "ctc": str(ctc_path),
+        "ctc_collection": collection.name,
+        "chain_source": chain_source,
         "bone_map": str(map_path),
         "chain_count": len(ctc.chains),
         "node_count": ctc.node_count,
         "chains_per_category": category_counts,
         "chains": chains_report,
         "skipped": skipped,
-        "imports": imports,
+        "export": {
+            "path": str(ctc_path),
+            "result": sorted(export_result),
+        },
         "node_settings": {
             "angle_limit_start_degrees": angle_start,
             "angle_limit_end_degrees": angle_end,

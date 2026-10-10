@@ -146,13 +146,19 @@ Run `scripts/prepare_re6_texture_stage.py`.
 
 Run `scripts/prepare_re6_ctc_stage.py`.
 
-1. Rebuild non-branching chains from the Stage 3 semantic categories.
-2. Write bone function ids using the `RE6Bone_<id>` names.
-3. Interpolate the angle limit linearly from 15 degrees at the first node to
+1. Remove every existing RE6 Model Editor CTC object and CTC collection from
+   the input. The input may contain an old CTC collection; it is not reused.
+2. Create a fresh plugin CTC collection with
+   `re6_ctc.create_ctc_collection`.
+3. Rebuild non-branching chains from the Stage 3 semantic categories as
+   plugin chain, node, and angle-limit-frame objects.
+4. Write bone function ids using the `RE6Bone_<id>` names.
+5. Interpolate the angle limit linearly from 15 degrees at the first node to
    60 degrees at the last node.
-4. Write `stages/pl0600.ctc`, import it back into the `.blend`, and save
-   `stage_08_ctc.blend`.
-5. Do not generate a `.ccl`. The final stage reuses the reference `.ccl`.
+6. Export the plugin collection with `re6_ctc.export_re6_ctc` to
+   `stages/pl0600.ctc`, then save `stage_08_ctc.blend`. Do not call the core
+   CTC serializer directly.
+7. Do not generate a `.ccl`. The final stage reuses the reference `.ccl`.
 
 ## Stage 9: Export And Package
 
