@@ -850,17 +850,46 @@ def main() -> int:
             )
         )
     )
-    # RE6 merges material slots that share one
-    # Base Color image is optional and defaults to on.
-    merge_by_base_image = bool(
-        manifest.get("settings", {}).get(
-            "stage_5c_merge_by_base_image",
-            True,
-        )
-    )
+    # Base Color material consolidation is mandatory. The optional texture
+    # atlas pass runs only after this material audit has passed.
+    merge_by_base_image = True
     material_merge = None
     texture_merge = None
     result = None
+    # Outline shells carry the generated Outline material, which has no Base
+    # Color image and must not fail the material audit.
+    audit_meshes = [
+        obj
+        for obj in prepared_meshes
+        if not obj.name.endswith("_Outline")
+    ]
+    material_merge, unresolved_base_images = (
+        merge_materials_by_base_image(
+            audit_meshes,
+            project_root / "manual" / "fallback_base",
+        )
+    )
+    if unresolved_base_images:
+        failure_report = {
+            "stage": "mesh_cleanup",
+            "status": "failed",
+            "project": str(project_path),
+            "input": str(input_path),
+            "material_merge": material_merge,
+            "failures": [
+                {
+                    "reason": "Base Color texture resolution failed",
+                    "unresolved": unresolved_base_images,
+                }
+            ],
+        }
+        write_json(report_path, failure_report)
+        raise RuntimeError(
+            "Stage 5C stopped before material separation because one or "
+            "more Base Color bindings could not be resolved: "
+            f"{report_path}"
+        )
+
     if merge_textures:
         enable_addon(("material-combiner-addon-master",))
         texture_merge = merge_all_textures_with_matcombiner(
@@ -868,43 +897,6 @@ def main() -> int:
             prepared_meshes,
         )
     else:
-        if merge_by_base_image:
-            # Outline shells carry the generated Outline material, which has
-            # no Base Color image and must not fail the material audit.
-            audit_meshes = [
-                obj
-                for obj in prepared_meshes
-                if not obj.name.endswith("_Outline")
-            ]
-            material_merge, unresolved_base_images = (
-                merge_materials_by_base_image(
-                    audit_meshes,
-                    project_root / "manual" / "fallback_base",
-                )
-            )
-        else:
-            material_merge, unresolved_base_images = {}, []
-        if unresolved_base_images:
-            failure_report = {
-                "stage": "mesh_cleanup",
-                "status": "failed",
-                "project": str(project_path),
-                "input": str(input_path),
-                "material_merge": material_merge,
-                "failures": [
-                    {
-                        "reason": "Base Color texture resolution failed",
-                        "unresolved": unresolved_base_images,
-                    }
-                ],
-            }
-            write_json(report_path, failure_report)
-            raise RuntimeError(
-                "Stage 5C stopped before material separation because one or "
-                "more Base Color bindings could not be resolved: "
-                f"{report_path}"
-            )
-
         select_all(prepared_meshes)
         result = bpy.ops.mhw.separate_by_materials(
             rename=True,
@@ -1029,6 +1021,7 @@ def main() -> int:
         "operator_result": list(result) if result else None,
         "before": before,
         "material_merge": material_merge,
+        "merge_by_base_image": merge_by_base_image,
         "texture_merge": texture_merge,
         "fragment_count": len(fragments),
         "fragments": fragment_reports,
@@ -1052,9 +1045,11 @@ def main() -> int:
             "report": str(report_path),
             "fragment_count": len(fragments),
             "required_groups": required_groups,
+            "merge_by_base_image": True,
             "merge_textures": bool(texture_merge),
         }
     )
+    manifest["settings"]["stage_5c_merge_by_base_image"] = True
     write_json(project_path, manifest)
     print(f"MESH_CLEANUP_STAGE={output_path}")
     bpy.ops.wm.quit_blender()

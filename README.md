@@ -138,9 +138,11 @@ Useful project options:
 ```text
 --outline                  Enable Stage 5D outline generation
 --merge-textures           Enable texture merging where supported
---no-merge-by-base-image   Disable Stage 5C base-image material merging
 --execution-mode normal    Disable low-token execution
 ```
+
+Stage 5C always merges material slots that resolve to the same Base Color
+image. Texture merging is optional and is off by default.
 
 Low-token mode is enabled by default. It keeps command output compact while
 preserving stage results and reports.
@@ -191,9 +193,9 @@ low-token stage instructions.
 | 2 | `align_skeleton_stage.py` | Align to the `pl0600` skeleton and clean finger bones |
 | 3 | `prepare_rig_stage.py` | Build the RE6 rig and physics bone mapping |
 | 5D | `prepare_outline_stage.py` | Optional body outline shell |
-| 5C | `finalize_mesh_cleanup_stage.py` | Finalize materials, weights, and mesh groups |
+| 5C | `finalize_mesh_cleanup_stage.py` | Mandatory Base Color material merge, optional texture merge, then finalize weights and mesh groups |
 | 6 | `prepare_mrl_stage.py` | Build and inspect the MRL |
-| 7 | `prepare_re6_texture_stage.py` | Encode BC1 base color and BC3 normal textures |
+| 7 | `prepare_re6_texture_stage.py` | Encode square power-of-two 256-2048 BC1 base color and BC3 normal textures |
 | 8 | `prepare_re6_ctc_stage.py` | Build and export plugin-authored CTC physics chains |
 | 9 | `auto_export_re6_stage.py` | Export the MOD and assemble the final mod folder |
 
@@ -256,10 +258,10 @@ folder, as shown by the project manifest.
   rotated, but all finger bones are still deleted and merged into `hand`.
 - Physics bones must fit the RE6 ranges `213-249` and `135-189`.
 - Stage 8 writes only the CTC. The final stage reuses the reference CCL.
-- Immediately before export, Stage 9 sets normal meshes to `IASkinTB4wt` and
-  face meshes to `IASkinTB1wt` through the RE6 Model Editor, then verifies the
-  stored value of every mesh. Face materials come from
-  `settings.export.face_material_names` or the Stage 1 face-normal mask.
+- Immediately before export, Stage 9 sets a mesh to `IASkinTB1wt` only when
+  both its positive `RE6Bone_004` vertex coverage and head weight share are at
+  least one third. Every other mesh uses `IASkinTB4wt`. It then verifies the
+  stored value of every mesh.
 - Stage 9 validates the exported MOD, MRL, CTC, textures, material hashes,
   and file placement.
 

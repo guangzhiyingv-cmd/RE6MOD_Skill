@@ -70,6 +70,8 @@ Run `scripts/align_skeleton_stage.py`.
    20 degrees, not 20 degrees per chain. Resolve the sign per hand from the
    palm-plane normal and require every fingertip to move toward the palm;
    never trust mirrored local-axis signs without this validation.
+   Validate the four main fingers as one group and the thumb phalanges as a
+   separate group, so the thumb can use its own measured direction.
 6. Do not rotate `thumb_01_L` or `thumb_01_R`, but still delete them.
 7. Delete all finger bones and merge their weights into `hand_L` and
    `hand_R`.
@@ -99,12 +101,17 @@ Run `scripts/prepare_rig_stage.py`.
 
 Run `scripts/finalize_mesh_cleanup_stage.py` after Stage 3.
 
-1. Apply the project material mode.
-2. Keep Base Color consolidation enabled unless the project disables it.
-3. Confirm every fragment resolves to one material.
-4. Remove empty and orphan vertex groups.
-5. Confirm no zero-weight vertices remain.
-6. Save `stage_05c_mesh_cleanup.blend`.
+1. Always merge material slots that resolve to the same Base Color image.
+   This step is mandatory and cannot be disabled.
+2. Texture merging remains optional through
+   `settings.stage_5c_merge_textures`. It defaults to off, so the normal
+   path keeps separate textures.
+3. If texture merging is requested, run the texture atlas pass only after
+   Base Color material consolidation has passed.
+4. Confirm every fragment resolves to one material.
+5. Remove empty and orphan vertex groups.
+6. Confirm no zero-weight vertices remain.
+7. Save `stage_05c_mesh_cleanup.blend`.
 
 ## Stage 5D: Optional Outline
 
@@ -142,15 +149,21 @@ Run `scripts/prepare_re6_texture_stage.py`.
 
 1. Reduce every base color image by 40 percent: multiply RGB by `0.6` and
    leave alpha unchanged. Apply the reduction only once per shared image.
-2. Scale base color images to at most 2048 on either axis and encode BC1.
-   Materials without a source Base Color image use a generated flat-color
-   `256x256` fallback; the outline material uses a black `256x256` fallback.
-3. Write `<material>_BM.tex` under the `.mrl` texture directory.
-4. Convert a source normal image to DXT5nm BC3 as `<material>_NM.tex`.
-5. If a material has no normal image, write one shared `Null_NM.tex` from
+2. Convert every texture to a square image. The side length is the largest
+   power of two not exceeding the source's longest side, clamped to
+   `256-2048`. Stretch non-square images directly to that square.
+3. Encode base color images as BC1. Materials without a source Base Color
+   image use a generated flat-color `256x256` fallback; the outline material
+   uses a black `256x256` fallback. Both are encoded as BC1.
+4. Write `<material>_BM.tex` under the `.mrl` texture directory.
+5. Convert a source normal image to a square power-of-two DXT5nm BC3
+   `<material>_NM.tex` using the same size rule.
+6. If a material has no normal image, write one shared `Null_NM.tex` from
    `assets/RE6/Null_NM.dds`.
-6. Do not emit an intermediate DDS for source images.
-7. Save `stage_07_textures.blend` and report base, normal, fallback, size,
+7. Do not emit an intermediate DDS for source images.
+8. Reject every output that is not square, power-of-two, or within
+   `256-2048`.
+9. Save `stage_07_textures.blend` and report base, normal, fallback, size,
    format, and brightness-reduction data.
 
 ## Stage 8: Build The CTC Physics Chains
@@ -179,13 +192,11 @@ Run `scripts/prepare_re6_ctc_stage.py`.
 
 Run `scripts/auto_export_re6_stage.py`.
 
-0. Immediately before export, select the non-face meshes in the RE6 mod
-   collection and run `re6_mod.set_vertex_format` with `IASkinTB4wt`. Select
-   the face meshes and run the same operator with `IASkinTB1wt`. Face meshes
-   are identified by `settings.export.face_material_names`, falling back to
-   `settings.cylindrical_face_normals.mask_material_names`. Verify that every
-   mesh stores the expected `Mod_Mesh_VertexFormat` value. Stop if any mesh
-   fails or if a mesh mixes face and non-face materials.
+0. Immediately before export, inspect each mesh's positive weights. A mesh
+   uses `IASkinTB1wt` only when its `RE6Bone_004` vertex coverage and head
+   weight share both reach one third; set every other mesh to `IASkinTB4wt`.
+   Verify that every mesh stores the expected `Mod_Mesh_VertexFormat` value.
+   Stop if any mesh fails.
 1. Copy the complete reference mod tree from
    `assets/RE6/参考标准mod/RE6 Shinano Official`.
 2. Delete the reference's own textures while preserving the target texture

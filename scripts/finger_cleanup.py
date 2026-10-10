@@ -17,6 +17,7 @@ import source_rig_utils
 
 
 FINGER_CHAINS = ("thumb", "index", "middle", "ring", "pinky")
+MAIN_FINGER_CHAINS = ("index", "middle", "ring", "pinky")
 FINGER_SEGMENTS = ("01", "02", "03")
 SIDES = ("L", "R")
 AXIS_INDEX = {"X": 0, "Y": 1, "Z": 2}
@@ -117,20 +118,35 @@ def _pose_all(armature, bones: list[str], axis: str, degrees: float) -> None:
     bpy.context.view_layer.update()
 
 
+def _reset_bones(armature, bones: list[str], axis: str) -> None:
+    """Return the given bones to rest before measuring a new curl direction."""
+    _pose_all(armature, bones, axis, 0.0)
+
+
 def _resolve_side_sign(
     armature,
     side: str,
     bones: list[str],
     chains: dict,
+    reference_chains: dict,
     hand_name: str,
     axis: str,
     angle: float,
     requested: str,
+    label: str,
 ) -> dict:
+    reference_bones = sorted(
+        {
+            name
+            for chain in reference_chains.values()
+            for name in chain
+        }
+    )
+    _reset_bones(armature, reference_bones, axis)
     palm_normal = _palm_normal(
         armature,
         side,
-        chains,
+        reference_chains,
         hand_name,
     )
     metrics = _curl_metrics(
@@ -146,7 +162,7 @@ def _resolve_side_sign(
     if max(positive_min, negative_min) <= CURL_EPSILON:
         raise RuntimeError(
             f"No inward finger rotation direction was found for "
-            f"{hand_name!r}: {metrics}"
+            f"{label} of {hand_name!r}: {metrics}"
         )
     measured_sign = 1 if positive_min >= negative_min else -1
     chosen = metrics[str(measured_sign)]
@@ -157,7 +173,8 @@ def _resolve_side_sign(
     }
     if outward:
         raise RuntimeError(
-            f"Not every finger curls toward the palm of {hand_name!r}: "
+            f"Not every bone in {label} curls toward the palm of "
+            f"{hand_name!r}: "
             f"{outward}"
         )
 
@@ -166,13 +183,13 @@ def _resolve_side_sign(
         if measured_sign != 1:
             raise RuntimeError(
                 f"finger_cleanup requested +1 for {hand_name!r}, but "
-                "palm-normal validation requires -1."
+                f"{label} palm-normal validation requires -1."
             )
     elif requested_value == "-1":
         if measured_sign != -1:
             raise RuntimeError(
                 f"finger_cleanup requested -1 for {hand_name!r}, but "
-                "palm-normal validation requires +1."
+                f"{label} palm-normal validation requires +1."
             )
     elif requested_value in ("mirrored", "mmd", "auto"):
         pass
@@ -183,6 +200,7 @@ def _resolve_side_sign(
         )
 
     report = {
+        "group": label,
         "sign": measured_sign,
         "requested": str(requested),
         "palm_normal": list(palm_normal),
@@ -248,6 +266,34 @@ def apply_finger_cleanup(
     angle = float(config.get("angle_degrees", 20.0))
 
     chains_by_side = {side: _side_chains(resolved, side) for side in SIDES}
+    main_chains_by_side = {
+        side: {
+            chain: chains_by_side[side][chain]
+            for chain in MAIN_FINGER_CHAINS
+        }
+        for side in SIDES
+    }
+    thumb_chains_by_side = {
+        side: {"thumb": chains_by_side[side]["thumb"]}
+        for side in SIDES
+    }
+    main_bones_by_side = {
+        side: sorted(
+            resolved[f"{chain}_{segment}_{side}"]
+            for chain in MAIN_FINGER_CHAINS
+            for segment in FINGER_SEGMENTS
+            if f"{chain}_{segment}_{side}" not in keep
+        )
+        for side in SIDES
+    }
+    thumb_bones_by_side = {
+        side: sorted(
+            resolved[f"thumb_{segment}_{side}"]
+            for segment in FINGER_SEGMENTS
+            if f"thumb_{segment}_{side}" not in keep
+        )
+        for side in SIDES
+    }
     hand_bones = {side: hands[f"hand_{side}"] for side in SIDES}
     requested_sign = config.get("sign", "auto")
 
@@ -260,21 +306,48 @@ def apply_finger_cleanup(
             side: _resolve_side_sign(
                 armature,
                 side,
-                rotatable_by_side[side],
+                main_bones_by_side[side],
+                main_chains_by_side[side],
                 chains_by_side[side],
                 hand_bones[side],
                 axis,
                 angle,
                 requested_sign,
+                "main fingers",
             )
             for side in SIDES
         }
         for side in SIDES:
+            thumb_rotation = _resolve_side_sign(
+                armature,
+                side,
+                thumb_bones_by_side[side],
+                thumb_chains_by_side[side],
+                chains_by_side[side],
+                hand_bones[side],
+                axis,
+                angle,
+                "auto",
+                "thumb",
+            )
+            rotations[side] = {
+                "sign": rotations[side]["sign"],
+                "thumb_sign": thumb_rotation["sign"],
+                "main": rotations[side],
+                "thumb": thumb_rotation,
+            }
+        for side in SIDES:
             _pose_all(
                 armature,
-                rotatable_by_side[side],
+                main_bones_by_side[side],
                 axis,
                 angle * rotations[side]["sign"],
+            )
+            _pose_all(
+                armature,
+                thumb_bones_by_side[side],
+                axis,
+                angle * rotations[side]["thumb_sign"],
             )
     finally:
         bpy.ops.object.mode_set(mode="OBJECT")

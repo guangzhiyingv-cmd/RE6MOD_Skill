@@ -249,6 +249,6 @@
     "Material output follows the reference mod: the .mrl contains only mod-specific albedo and normal materials, and the .mod may also list target-owned material hashes.",
     "pl0601.mod / pl0602.mod / pl0603.mod and event/face/pl0600/cs_pl0600*.mod are exported untouched.",
     "Target is locked to slot pl0600 (Ada) with a single body part.",
-    "Stage 9 sets normal meshes to IASkinTB4wt and face meshes to IASkinTB1wt; the face material group is taken from the Stage 1 face-normal mask unless settings.export.face_material_names overrides it."
+    "Stage 9 sets a mesh to IASkinTB1wt only when RE6Bone_004 vertex coverage and head weight share both reach one third; all other meshes use IASkinTB4wt."
   ]
 }

@@ -24,6 +24,17 @@ The skill is self-contained for Blender add-ons. `mmd_tools`,
 `assets/RE6/Tools` and loaded from there by `scripts/internal_deps.py`.
 Blender 5.2 itself is the only external runtime.
 
+## Skill Modification Approval Gate
+
+- The AI must not modify this skill without explicit user approval. This
+  includes `SKILL.md`, scripts, profiles, references, assets, metadata, and
+  installed skill copies.
+- A user request to modify the skill is not immediate approval. First provide
+  a concise plan listing the files and behavior that would change, then wait
+  for the user to approve that plan before editing anything.
+- If the requested work can be completed without changing the skill, keep the
+  implementation in the project or work files instead.
+
 ## Target
 
 - Target profile: [profiles/re6-pl0600.json](profiles/re6-pl0600.json)
@@ -56,8 +67,9 @@ Blender 5.2 itself is the only external runtime.
 - Stage 2 also rotates every finger phalanx inward by 20 degrees, leaves
   `thumb_01_L` and `thumb_01_R` unrotated, then deletes the finger bones and
   merges their weights into the corresponding hand. The curl sign must be
-  resolved from the palm-plane normal, and every fingertip must move toward
-  the palm before the finger cleanup is accepted.
+  resolved from the palm-plane normal. The four main fingers share one
+  measured sign, while the thumb phalanges are validated independently so
+  their inward direction cannot be inverted.
 - Stage 3 processes physics bones. Rename them to `RE6Bone_<id>`, use ids
   `213-249` first and then `135-189`, and keep the total physics-bone count at
   or below 92. Merge unneeded physics bones into their parents before using
@@ -68,6 +80,9 @@ Blender 5.2 itself is the only external runtime.
 - Stage 5D is optional and runs before Stage 5C. It creates one outline shell
   for the whole body, follows the skeleton normally, and does not lock the
   shell to a single bone.
+- Stage 5C always merges material slots that resolve to the same Base Color
+  image. This consolidation is mandatory. Texture merging is a separate
+  optional step and defaults to off.
 - Stage 6 builds the `.mrl` from the original
   [assets/RE6/pl0600_0.mrl](assets/RE6/pl0600_0.mrl) material `68b3d093`.
   Keep the original command block, constant buffers, shader flags, and header.
@@ -80,8 +95,10 @@ Blender 5.2 itself is the only external runtime.
   - `0ed1b35a tSpecularMap`:
     `data\chara\pl\pl0600\model\pl0600_04shirt_MM`
 - Stage 7 reduces every base color image by 40 percent before BC1 encoding.
-  Base color textures are BC1 and at most 2048 on either axis. Normal maps are
-  BC3 DXT5nm and at most 2048. Materials without a normal map share
+  Every output texture must be square with a power-of-two side length between
+  256 and 2048. Non-square source images are stretched directly to a square
+  target. Base color textures are BC1; normal maps are BC3 DXT5nm. Materials
+  without a normal map share
   `Null_NM.tex` converted from
   [assets/RE6/Null_NM.dds](assets/RE6/Null_NM.dds).
 - Materials without a source Base Color image use a generated flat-color
@@ -97,11 +114,10 @@ Blender 5.2 itself is the only external runtime.
   `.ctc`, deletes the reference textures, copies only our textures, reuses the
   reference `.ccl`, and writes `modinfo.ini` with `author=GZYV`.
 - Immediately before the Stage 9 export, set the normal meshes to
-  `IASkinTB4wt` through `re6_mod.set_vertex_format`. Face meshes are the
-  materials named by `settings.export.face_material_names`, or the
-  `settings.cylindrical_face_normals.mask_material_names` fallback, and are
-  set to `IASkinTB1wt` instead. Verify every stored mesh property and stop if
-  any mesh still has another format.
+  `IASkinTB4wt` through `re6_mod.set_vertex_format`. A mesh uses
+  `IASkinTB1wt` only when both its positive `RE6Bone_004` vertex coverage and
+  its total head-bone weight share are at least one third. Verify every stored
+  mesh property and stop if any mesh still has another format.
 - Treat `FINISHED` from a Blender operator as insufficient. Re-parse the
   final `.mod`, `.mrl`, and `.ctc` and validate material hashes, texture path
   resolution, and file placement.

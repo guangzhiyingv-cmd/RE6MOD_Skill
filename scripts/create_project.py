@@ -63,16 +63,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--merge-textures", action="store_true")
     parser.add_argument(
-        "--no-merge-by-base-image",
-        dest="merge_by_base_image",
-        action="store_false",
-        default=True,
-        help=(
-            "Keep Stage 5C from merging material slots that share one Base "
-            "Color image."
-        ),
-    )
-    parser.add_argument(
         "--outline",
         "--make-outline",
         dest="make_outline",
@@ -225,7 +215,8 @@ def main() -> int:
             "scale_hint": args.scale_hint,
             "scale_source": "user" if args.scale_hint is not None else None,
             "stage_5c_merge_textures": args.merge_textures,
-            "stage_5c_merge_by_base_image": args.merge_by_base_image,
+            # Base Color material consolidation is a mandatory Stage 5C step.
+            "stage_5c_merge_by_base_image": True,
             "make_outline": args.make_outline,
             "make_cylindrical_face_normals": (
                 args.make_cylindrical_face_normals

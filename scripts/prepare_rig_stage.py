@@ -607,7 +607,23 @@ def main() -> int:
     if re6_state is not None:
         base_bones = re6_state["base_bones"]
         plan = load_chain_simplification_plan(project_root, base_bones)
-        chain_config = profile.get("physics_chains") or {}
+        chain_config = dict(profile.get("physics_chains") or {})
+        project_chain_config = (
+            manifest.get("settings", {}).get("physics_chains") or {}
+        )
+        if project_chain_config:
+            chain_config["categories"] = {
+                **(chain_config.get("categories") or {}),
+                **(project_chain_config.get("categories") or {}),
+            }
+            chain_config["excluded"] = [
+                *(chain_config.get("excluded") or []),
+                *(project_chain_config.get("excluded") or []),
+            ]
+            if project_chain_config.get("priority"):
+                chain_config["priority"] = list(
+                    project_chain_config["priority"]
+                )
         re6_physics_report = {
             "cleanup": re6_physics_bones.cleanup_physics_bones(
                 body_armature,

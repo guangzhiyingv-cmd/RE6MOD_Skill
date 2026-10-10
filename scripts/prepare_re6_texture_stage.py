@@ -3,8 +3,8 @@
 The .mrl written in Stage 6 points at ``<texture_dir>/<material>_BM``, so this
 stage produces those files plus either ``<material>_NM`` or a shared
 ``Null_NM`` fallback. RE6 stores base color as BC1 (DXT1) and normal maps as
-DXT5nm BC3. The game rejects textures above 2048 on either axis, so every
-image is scaled down before it is encoded.
+DXT5nm BC3. Every output must be square with a power-of-two side length
+between 256 and 2048, so images are stretched to that shape before encoding.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ import re6_material_textures
 
 MOD_COLLECTION_TYPE = "RE6_MOD_COLLECTION"
 DEFAULT_MAX_SIZE = 2048
+MIN_TEXTURE_SIZE = 256
 FALLBACK_BASE_SIZE = 256
 
 
@@ -148,13 +149,37 @@ def fallback_outline_image(
     return image
 
 
-def fit_size(width: int, height: int, limit: int) -> tuple[int, int]:
-    """Largest size within ``limit`` on both axes, keeping the aspect ratio."""
-    longest = max(width, height)
-    if longest <= limit:
-        return width, height
-    scale = limit / float(longest)
-    return max(1, int(round(width * scale))), max(1, int(round(height * scale)))
+def fit_square_size(
+    width: int,
+    height: int,
+    limit: int,
+) -> tuple[int, int]:
+    """Return a square power-of-two size within the configured limit."""
+    longest = max(int(width), int(height))
+    if longest < 1:
+        raise RuntimeError("Texture dimensions must be positive.")
+    side = 1 << (longest.bit_length() - 1)
+    side = max(MIN_TEXTURE_SIZE, min(int(limit), side))
+    return side, side
+
+
+def validate_texture_size(parsed, name: str, limit: int) -> None:
+    """Reject textures that violate the mandatory RE6 size rule."""
+    width = int(parsed.width)
+    height = int(parsed.height)
+    if width != height:
+        raise RuntimeError(
+            f"{name} is not square after conversion: {width}x{height}"
+        )
+    if width < MIN_TEXTURE_SIZE or width > limit:
+        raise RuntimeError(
+            f"{name} is outside the allowed size range "
+            f"{MIN_TEXTURE_SIZE}-{limit}: {width}x{height}"
+        )
+    if width & (width - 1):
+        raise RuntimeError(
+            f"{name} side length is not a power of two: {width}"
+        )
 
 
 def reduce_image_brightness(image, percent: float) -> None:
@@ -205,6 +230,11 @@ def main() -> int:
             f"settings.texture.compression is {compression!r}"
         )
     max_size = int(texture_config.get("max_size", DEFAULT_MAX_SIZE))
+    if max_size < MIN_TEXTURE_SIZE:
+        raise RuntimeError(
+            "settings.texture.max_size must be at least "
+            f"{MIN_TEXTURE_SIZE}."
+        )
     if max_size > DEFAULT_MAX_SIZE:
         raise RuntimeError(
             "RE6 textures may not exceed "
@@ -214,6 +244,11 @@ def main() -> int:
     normal_max_size = int(
         texture_config.get("normal_max_size", max_size)
     )
+    if normal_max_size < MIN_TEXTURE_SIZE:
+        raise RuntimeError(
+            "settings.texture.normal_max_size must be at least "
+            f"{MIN_TEXTURE_SIZE}."
+        )
     if normal_max_size > DEFAULT_MAX_SIZE:
         raise RuntimeError(
             "RE6 normal textures may not exceed "
@@ -311,7 +346,11 @@ def main() -> int:
             )
             continue
         source_size = list(image.size)
-        target_size = fit_size(image.size[0], image.size[1], max_size)
+        target_size = fit_square_size(
+            image.size[0],
+            image.size[1],
+            max_size,
+        )
         if target_size != tuple(image.size):
             image.scale(target_size[0], target_size[1])
         if image.name not in preprocessed_base_images:
@@ -329,6 +368,7 @@ def main() -> int:
         target = out_dir / f"{name}.tex"
         target.write_bytes(tex_bytes)
         parsed = tex_core.parse(tex_bytes)
+        validate_texture_size(parsed, name, max_size)
         records.append(
             {
                 "kind": "base",
@@ -351,7 +391,7 @@ def main() -> int:
             fallback_normal_users.append(material.name)
             continue
         normal_source_size = list(normal_image.size)
-        normal_target_size = fit_size(
+        normal_target_size = fit_square_size(
             normal_image.size[0],
             normal_image.size[1],
             normal_max_size,
@@ -371,6 +411,11 @@ def main() -> int:
         normal_target = out_dir / f"{normal_name}.tex"
         normal_target.write_bytes(normal_bytes)
         normal_parsed = tex_core.parse(normal_bytes)
+        validate_texture_size(
+            normal_parsed,
+            normal_name,
+            normal_max_size,
+        )
         records.append(
             {
                 "kind": "normal",
@@ -397,6 +442,11 @@ def main() -> int:
         null_target = out_dir / f"{null_normal_name}.tex"
         null_target.write_bytes(null_bytes)
         null_parsed = tex_core.parse(null_bytes)
+        validate_texture_size(
+            null_parsed,
+            null_normal_name,
+            normal_max_size,
+        )
         records.append(
             {
                 "kind": "normal_fallback",
@@ -445,6 +495,12 @@ def main() -> int:
         "compression": compression,
         "max_size": max_size,
         "base_brightness_reduction_percent": brightness_reduction,
+        "texture_size_rule": {
+            "square": True,
+            "power_of_two": True,
+            "minimum": MIN_TEXTURE_SIZE,
+            "maximum": DEFAULT_MAX_SIZE,
+        },
         "texture_count": len(records),
         "base_texture_count": base_texture_count,
         "normal_texture_count": normal_texture_count,

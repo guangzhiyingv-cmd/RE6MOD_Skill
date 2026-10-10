@@ -131,9 +131,10 @@ D:\Models\MyCharacter\work\mycharacter\project.json
 ```text
 --outline                  启用 Stage 5D 描边
 --merge-textures           启用支持的贴图合并
---no-merge-by-base-image   关闭 Stage 5C 按基础色贴图合并材质
 --execution-mode normal    关闭低 token 模式
 ```
+
+Stage 5C 始终按基础色贴图归并材质，不能关闭；贴图合并是可选项，默认不合并。
 
 ### 3. 检查环境
 
@@ -178,9 +179,9 @@ Stage 都使用上一个 Stage 的输出作为输入，并且不会覆盖已经�
 | 2 | `align_skeleton_stage.py` | 对齐 RE6 `pl0600` 骨架并清理手指骨 |
 | 3 | `prepare_rig_stage.py` | 创建 RE6 骨架和物理骨映射 |
 | 5D | `prepare_outline_stage.py` | 可选描边壳 |
-| 5C | `finalize_mesh_cleanup_stage.py` | 材质、权重和网格收尾 |
+| 5C | `finalize_mesh_cleanup_stage.py` | 强制按基础色归并材质，可选合并贴图，然后完成权重和网格收尾 |
 | 6 | `prepare_mrl_stage.py` | 创建 MRL 并回导检查 |
-| 7 | `prepare_re6_texture_stage.py` | 导出 BC1 基础色和 BC3 法线贴图 |
+| 7 | `prepare_re6_texture_stage.py` | 导出正方形、2 的幂、边长 256-2048 的 BC1 基础色和 BC3 法线贴图 |
 | 8 | `prepare_re6_ctc_stage.py` | 使用插件创建并导出 CTC 物理链 |
 | 9 | `auto_export_re6_stage.py` | 导出 MOD 并组装最终 Mod 目录 |
 
@@ -193,13 +194,12 @@ Stage 都使用上一个 Stage 的输出作为输入，并且不会覆盖已经�
 - RE6 使用序号骨骼名，骨骼语义来自 `assets/RE6/RE6.json`。
 - 高度以肩膀骨骼为准，不使用整个模型包围盒。
 - 每根手指骨向内侧旋转 20 度；`thumb_01` 不旋转，但所有手指骨都会删除并
-  把权重合并到 `hand`。
+  把权重合并到 `hand`。四指共用一个掌心验证方向，大拇指骨架单独验证方向。
 - 物理骨必须使用 `213-249` 和 `135-189` 范围内的编号。
 - Stage 8 只生成 CTC，最终复用参考 Mod 的 CCL。
-- Stage 9 导出前会通过 RE6 Model Editor 把普通网格设置为 `IASkinTB4wt`，
-  把脸部网格设置为 `IASkinTB1wt`，并检查每个网格保存后的属性。脸部材质
-  来自 `settings.export.face_material_names`，未配置时使用 Stage 1 的
-  面部法向材质列表。
+- Stage 9 导出前会统计每个网格的 `RE6Bone_004` 顶点覆盖率和头部权重占比；
+  两者都达到 1/3 时才设置为 `IASkinTB1wt`，其他网格设置为
+  `IASkinTB4wt`，并检查每个网格保存后的属性。
 - Stage 9 会重新解析并验证 MOD、MRL、CTC、贴图、材质哈希和文件位置。
 
 ## 常见问题

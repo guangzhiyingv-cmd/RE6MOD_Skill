@@ -36,12 +36,15 @@ E:\mod\re6\Lossi\
 - `settings.make_cylindrical_face_normals`: enabled by default and executed
   inside Stage 1 for RE6
 - `settings.make_outline`: optional Stage 5D whole-body outline
-- `settings.stage_5c_merge_textures`: optional Stage 5C atlas mode
-- `settings.stage_5c_merge_by_base_image`: enabled by default
+- `settings.stage_5c_merge_textures`: optional Stage 5C texture atlas mode;
+  off by default
+- `settings.stage_5c_merge_by_base_image`: mandatory Stage 5C Base Color
+  material consolidation
 - `settings.mrl`: texture directory, material rename map, original MRL
   template, slot configuration, and `Null_NM` path
 - `settings.texture`: BC1 base color settings, BC3 normal settings, 40 percent
-  base brightness reduction, and the `Null_NM.dds` source
+  base brightness reduction, and the `Null_NM.dds` source. All outputs are
+  square with power-of-two sides in the range `256-2048`.
 - `settings.ctc`: chain damping, force, collision radius, and 15-to-60 degree
   interpolation
 - `settings.export`: reference mod root, reused `.ccl`, MRL names, and
