@@ -4,8 +4,8 @@ RE6 does not use the Modding Toolkit batch exporters, so this stage drives the
 add-on's own `re6_mod.export_re6_mod` operator, copies the finished `.mrl` and
 the reused `.ccl` next to it, writes `modinfo.ini`, and then re-parses every
 binary resource to prove the export matches what the earlier stages planned.
-Immediately before export, every mesh is assigned the ``IASkinTB4wt`` vertex
-format through the RE6 Model Editor operator.
+Immediately before export, normal meshes are assigned ``IASkinTB4wt`` and
+face meshes are assigned ``IASkinTB1wt`` through the RE6 Model Editor operator.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ import re6_material_textures
 MOD_COLLECTION_TYPE = "RE6_MOD_COLLECTION"
 MODEL_DIR = "nativePC_mod/data/chara/pl/pl0600/model"
 EXPORT_VERTEX_FORMAT = "IASkinTB4wt"
+FACE_EXPORT_VERTEX_FORMAT = "IASkinTB1wt"
 
 
 def parse_args() -> argparse.Namespace:
@@ -148,27 +149,192 @@ def seed_from_reference(
     }
 
 
-def apply_export_vertex_format(
-    collection: bpy.types.Collection,
-    addon_module: str,
-) -> dict:
-    """Set every exported mesh to IASkinTB4wt with the add-on operator."""
-    vertex_core = importlib.import_module(f"{addon_module}.core.vertex")
-    vertex_formats = importlib.import_module(
-        f"{addon_module}.blender.vertex_formats"
-    )
+def resolve_vertex_format(vertex_core, format_name: str) -> tuple[int, str]:
+    """Resolve one game layout by its official RE6 name."""
     target_hashes = [
         value
         for value in vertex_core.FORMATS
-        if vertex_core.official_name(value) == EXPORT_VERTEX_FORMAT
+        if vertex_core.official_name(value) == format_name
     ]
     if len(target_hashes) != 1:
         raise RuntimeError(
             "Could not resolve one RE6 vertex format named "
-            f"{EXPORT_VERTEX_FORMAT!r}: {target_hashes}"
+            f"{format_name!r}: {target_hashes}"
         )
     target_hash = target_hashes[0]
+    return target_hash, f"{target_hash:08x}"
+
+
+def configured_face_material_names(manifest: dict) -> set[str]:
+    """Return source and output material names that belong to the face group."""
+    settings = manifest.get("settings") or {}
+    export_config = settings.get("export") or {}
+    configured = export_config.get("face_material_names")
+    if configured is None:
+        configured = (
+            settings.get("cylindrical_face_normals") or {}
+        ).get("mask_material_names") or []
+    if isinstance(configured, str):
+        configured = [configured]
+
+    names = {
+        str(value).strip()
+        for value in configured
+        if str(value).strip()
+    }
+    material_names = (settings.get("mrl") or {}).get("material_names") or {}
+    for source_name, output_name in material_names.items():
+        if str(source_name) in names and str(output_name).strip():
+            names.add(str(output_name).strip())
+    if not names:
+        raise RuntimeError(
+            "Face vertex format selection requires "
+            "settings.export.face_material_names or "
+            "settings.cylindrical_face_normals.mask_material_names."
+        )
+    return names
+
+
+def material_aliases(material: bpy.types.Material) -> set[str]:
+    """Material names before and after the Stage 6 ASCII rename."""
+    aliases = {material.name}
+    source_name = material.get("re6_source_name")
+    if source_name:
+        aliases.add(str(source_name))
+    return aliases
+
+
+def mesh_material_hashes(
+    obj: bpy.types.Object,
+    hashes_module,
+) -> list[str]:
+    """Sorted RE6 material hashes used by one mesh."""
+    result = set()
+    for slot in obj.material_slots:
+        material = slot.material
+        if material is None:
+            continue
+        stored = str(material.get("re6_hash") or "").strip()
+        if stored:
+            try:
+                result.add(f"{int(stored, 16):08x}")
+                continue
+            except ValueError:
+                pass
+        result.add(f"{hashes_module.jamcrc32(material.name):08x}")
+    return sorted(result)
+
+
+def partition_export_meshes(
+    meshes: list[bpy.types.Object],
+    face_material_names: set[str],
+) -> tuple[list[bpy.types.Object], list[bpy.types.Object]]:
+    """Split meshes into the normal and face vertex-format groups."""
+    regular = []
+    face = []
+    for obj in meshes:
+        slots = [
+            slot.material
+            for slot in obj.material_slots
+            if slot.material is not None
+        ]
+        if not slots:
+            raise RuntimeError(
+                f"Exported mesh {obj.name!r} has no materials."
+            )
+        slot_is_face = [
+            bool(material_aliases(material) & face_material_names)
+            for material in slots
+        ]
+        if any(slot_is_face) and not all(slot_is_face):
+            raise RuntimeError(
+                f"Exported mesh {obj.name!r} mixes face and non-face "
+                "materials; split it before export."
+            )
+        (face if all(slot_is_face) else regular).append(obj)
+    if not face:
+        raise RuntimeError(
+            "No face mesh matched the configured face material names: "
+            + ", ".join(sorted(face_material_names))
+        )
+    return regular, face
+
+
+def select_meshes(meshes: list[bpy.types.Object]) -> None:
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    for selected in bpy.context.selected_objects:
+        selected.select_set(False)
+    for obj in meshes:
+        obj.hide_set(False)
+        obj.hide_viewport = False
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = meshes[0]
+
+
+def set_vertex_format_group(
+    meshes: list[bpy.types.Object],
+    target_hash: int,
+    weights: str,
+    vertex_formats,
+) -> dict:
+    """Apply one format with the RE6 Model Editor operator and read it back."""
     target_value = f"{target_hash:08x}"
+    select_meshes(meshes)
+    result = bpy.ops.re6_mod.set_vertex_format(
+        useAuto=False,
+        skinned=True,
+        weights=weights,
+        uvCount=1,
+        useColor=False,
+        useTangent=True,
+        extraData=False,
+        vertexFormat=target_value,
+    )
+    if "FINISHED" not in result:
+        raise RuntimeError(
+            f"RE6 set_vertex_format failed for {target_value}: {result}"
+        )
+
+    stored = {
+        obj.name: vertex_formats.stored_format(obj.data)
+        for obj in meshes
+    }
+    mismatches = [
+        name
+        for name, value in stored.items()
+        if value != target_hash
+    ]
+    if mismatches:
+        raise RuntimeError(
+            f"RE6 vertex format {target_value} validation failed for: "
+            + ", ".join(sorted(mismatches))
+        )
+    return {
+        "operator_result": sorted(result),
+        "meshes": sorted(stored),
+    }
+
+
+def apply_export_vertex_format(
+    collection: bpy.types.Collection,
+    addon_module: str,
+    manifest: dict,
+    hashes_module,
+) -> dict:
+    """Set normal meshes to IASkinTB4wt and face meshes to IASkinTB1wt."""
+    vertex_core = importlib.import_module(f"{addon_module}.core.vertex")
+    vertex_formats = importlib.import_module(
+        f"{addon_module}.blender.vertex_formats"
+    )
+    default_hash, default_value = resolve_vertex_format(
+        vertex_core,
+        EXPORT_VERTEX_FORMAT,
+    )
+    face_hash, face_value = resolve_vertex_format(
+        vertex_core,
+        FACE_EXPORT_VERTEX_FORMAT,
+    )
 
     meshes = [
         obj for obj in collection.all_objects if obj.type == "MESH"
@@ -184,52 +350,69 @@ def apply_export_vertex_format(
             f"The RE6 mod collection {collection.name!r} has no armature."
         )
 
-    if bpy.context.mode != "OBJECT":
-        bpy.ops.object.mode_set(mode="OBJECT")
-    for selected in bpy.context.selected_objects:
-        selected.select_set(False)
-    for obj in meshes:
-        obj.hide_set(False)
-        obj.hide_viewport = False
-        obj.select_set(True)
-    bpy.context.view_layer.objects.active = meshes[0]
-
-    result = bpy.ops.re6_mod.set_vertex_format(
-        useAuto=False,
-        skinned=True,
-        weights="4",
-        uvCount=1,
-        useColor=False,
-        useTangent=True,
-        extraData=False,
-        vertexFormat=target_value,
-    )
-    if "FINISHED" not in result:
+    face_names = configured_face_material_names(manifest)
+    regular, face = partition_export_meshes(meshes, face_names)
+    if not regular:
         raise RuntimeError(
-            f"RE6 set_vertex_format failed: {result}"
+            "The RE6 mod collection contains no non-face meshes."
         )
 
-    stored = {
-        obj.name: vertex_formats.stored_format(obj.data)
-        for obj in meshes
-    }
-    mismatches = [
-        name
-        for name, value in stored.items()
-        if value != target_hash
-    ]
-    if mismatches:
-        raise RuntimeError(
-            "RE6 vertex format validation failed for: "
-            + ", ".join(sorted(mismatches))
+    assignments = []
+    for kind, group, target_hash, target_value, weights in (
+        ("default", regular, default_hash, default_value, "4"),
+        ("face", face, face_hash, face_value, "1"),
+    ):
+        result = set_vertex_format_group(
+            group,
+            target_hash,
+            weights,
+            vertex_formats,
+        )
+        assignments.append(
+            {
+                "kind": kind,
+                "name": (
+                    EXPORT_VERTEX_FORMAT
+                    if kind == "default"
+                    else FACE_EXPORT_VERTEX_FORMAT
+                ),
+                "hash": target_value,
+                "weights": int(weights),
+                "mesh_count": len(group),
+                "meshes": result["meshes"],
+                "material_hashes": sorted(
+                    {
+                        value
+                        for obj in group
+                        for value in mesh_material_hashes(
+                            obj,
+                            hashes_module,
+                        )
+                    }
+                ),
+                "operator_result": result["operator_result"],
+            }
         )
 
+    default_assignment = assignments[0]
+    face_assignment = assignments[1]
     return {
         "name": EXPORT_VERTEX_FORMAT,
-        "hash": target_value,
+        "hash": default_value,
         "mesh_count": len(meshes),
-        "meshes": sorted(stored),
-        "operator_result": sorted(result),
+        "meshes": sorted(obj.name for obj in meshes),
+        "operator_result": default_assignment["operator_result"],
+        "face": {
+            "name": FACE_EXPORT_VERTEX_FORMAT,
+            "hash": face_value,
+            "weights": face_assignment["weights"],
+            "mesh_count": face_assignment["mesh_count"],
+            "meshes": face_assignment["meshes"],
+            "material_hashes": face_assignment["material_hashes"],
+            "operator_result": face_assignment["operator_result"],
+        },
+        "face_material_names": sorted(face_names),
+        "assignments": assignments,
     }
 
 
@@ -289,6 +472,8 @@ def main() -> int:
     vertex_format_report = apply_export_vertex_format(
         collection,
         addon_module,
+        manifest,
+        hashes,
     )
     panel = bpy.context.scene.re6_mod_toolpanel
     panel.exportModCollection = collection
@@ -367,11 +552,28 @@ def main() -> int:
     mod_mesh_formats = [
         {
             "index": index,
+            "material": (
+                f"{mod.materials[mesh.material]:08x}"
+                if mesh.material < len(mod.materials)
+                else None
+            ),
             "hash": f"{mesh.blocktype:08x}",
             "name": vertex_core.official_name(mesh.blocktype),
         }
         for index, mesh in enumerate(mod.meshes)
     ]
+    expected_by_material = {}
+    for assignment in vertex_format_report["assignments"]:
+        for material_hash in assignment["material_hashes"]:
+            previous = expected_by_material.get(material_hash)
+            if previous is not None and previous != assignment["hash"]:
+                raise RuntimeError(
+                    "A material is assigned more than one vertex format: "
+                    f"{material_hash} -> {previous}, {assignment['hash']}"
+                )
+            expected_by_material[material_hash] = assignment["hash"]
+    for entry in mod_mesh_formats:
+        entry["expected_hash"] = expected_by_material.get(entry["material"])
     bone_ids = sorted({row[0] for row in mod.bone_table()})
     texture_files = sorted(texture_dir.rglob("*.tex"))
     textures = sorted(path.name for path in texture_files)
@@ -432,13 +634,15 @@ def main() -> int:
     unexpected_vertex_formats = [
         entry
         for entry in mod_mesh_formats
-        if entry["hash"] != vertex_format_report["hash"]
+        if entry["expected_hash"] is None
+        or entry["hash"] != entry["expected_hash"]
     ]
     if unexpected_vertex_formats:
         failures.append(
             {
                 "reason": "the exported .mod contains an unexpected vertex format",
-                "expected": vertex_format_report["hash"],
+                "default_format": vertex_format_report["hash"],
+                "face_format": vertex_format_report["face"]["hash"],
                 "unexpected": unexpected_vertex_formats,
             }
         )
@@ -522,6 +726,9 @@ def main() -> int:
 
     manifest["settings"]["export_report"] = str(report_path)
     manifest["settings"]["export_vertex_format"] = EXPORT_VERTEX_FORMAT
+    manifest["settings"]["export_face_vertex_format"] = (
+        FACE_EXPORT_VERTEX_FORMAT
+    )
     for part_name in list(manifest.get("parts", {})):
         manifest["parts"][part_name]["status"] = "exported"
         manifest["parts"][part_name]["validation"] = "stage_09_export"
@@ -534,6 +741,10 @@ def main() -> int:
             "meshes": len(mod.meshes),
             "vertex_format": EXPORT_VERTEX_FORMAT,
             "vertex_format_meshes": vertex_format_report["mesh_count"],
+            "face_vertex_format": FACE_EXPORT_VERTEX_FORMAT,
+            "face_vertex_format_meshes": vertex_format_report["face"][
+                "mesh_count"
+            ],
         }
     )
     write_json(project_path, manifest)

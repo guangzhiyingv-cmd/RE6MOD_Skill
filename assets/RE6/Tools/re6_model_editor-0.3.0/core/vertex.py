@@ -122,9 +122,15 @@ def kind_of(f: Fmt) -> str:
 
 
 def components(f: Fmt) -> tuple:
-    """(skinned, weights, uv count, colour, tangent, extra): what a layout holds; weights is 0 for static layouts"""
+    """(skinned, weights, uv count, colour, tangent, extra): what a layout holds.
+
+    Bone-index layouts (the game names them IASkinTB1wt and similar) hold one
+    bone influence even though their ids are stored as a single index rather
+    than a weight array. Static layouts hold no weights.
+    """
     kind = kind_of(f)
-    return (kind != 'static', 0 if kind == 'static' else f.influences, len(f.uvs), f.col is not None, f.tan is not None,
+    weights = 0 if kind == 'static' else (1 if kind == 'rigid' else f.influences)
+    return (kind != 'static', weights, len(f.uvs), f.col is not None, f.tan is not None,
             f.extra)
 
 

@@ -89,9 +89,12 @@ Blender 5.2 itself is the only external runtime.
 - Stage 9 copies the reference mod tree, replaces the `.mod`, `.mrl`, and
   `.ctc`, deletes the reference textures, copies only our textures, reuses the
   reference `.ccl`, and writes `modinfo.ini` with `author=GZYV`.
-- Immediately before the Stage 9 export, set every mesh vertex format to
-  `IASkinTB4wt` through `re6_mod.set_vertex_format`, then verify the stored
-  mesh property. Do not export if any mesh still has another format.
+- Immediately before the Stage 9 export, set the normal meshes to
+  `IASkinTB4wt` through `re6_mod.set_vertex_format`. Face meshes are the
+  materials named by `settings.export.face_material_names`, or the
+  `settings.cylindrical_face_normals.mask_material_names` fallback, and are
+  set to `IASkinTB1wt` instead. Verify every stored mesh property and stop if
+  any mesh still has another format.
 - Treat `FINISHED` from a Blender operator as insufficient. Re-parse the
   final `.mod`, `.mrl`, and `.ctc` and validate material hashes, texture path
   resolution, and file placement.

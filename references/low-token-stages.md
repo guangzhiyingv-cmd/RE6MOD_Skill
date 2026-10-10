@@ -16,7 +16,7 @@ decision is not covered here.
 | 6 | `prepare_mrl_stage.py` | 38-command mod materials, exact RE6 slot rules, `stages/pl0600.mrl` | non-English material without mapping, missing template slot |
 | 7 | `prepare_re6_texture_stage.py` | base color reduced 40 percent, BC1 `_BM`, BC3 `_NM` or shared `Null_NM` | non-BC1 base, oversized texture, missing base color |
 | 8 | `prepare_re6_ctc_stage.py` | plugin CTC objects created from Stage 7 input and plugin-exported `.ctc`; rebuilding an existing collection requires `--rebuild-existing-ctc` | existing CTC without the explicit rebuild flag, plugin creation/export failure, branching path, or non-`RE6Bone_<id>` name |
-| 9 | `auto_export_re6_stage.py` | all meshes set to plugin vertex format `IASkinTB4wt`, final `pl0600.mod`, `.mrl`, `.ctc`, reused `.ccl`, `modinfo.ini`, validation report | vertex-format application or verification failure, missing/extra texture, hash mismatch, parse failure |
+| 9 | `auto_export_re6_stage.py` | normal meshes set to plugin vertex format `IASkinTB4wt`, face meshes set to `IASkinTB1wt`, final `pl0600.mod`, `.mrl`, `.ctc`, reused `.ccl`, `modinfo.ini`, validation report | vertex-format application or verification failure, missing/extra texture, hash mismatch, parse failure |
 
 Keep the stage `.blend`, stage report, and `reports/run_state.json` after every
 successful stage.

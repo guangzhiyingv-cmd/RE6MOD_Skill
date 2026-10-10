@@ -196,8 +196,10 @@ Stage 都使用上一个 Stage 的输出作为输入，并且不会覆盖已经�
   把权重合并到 `hand`。
 - 物理骨必须使用 `213-249` 和 `135-189` 范围内的编号。
 - Stage 8 只生成 CTC，最终复用参考 Mod 的 CCL。
-- Stage 9 导出前会通过 RE6 Model Editor 把所有网格顶点格式设置为
-  `IASkinTB4wt`，并检查保存后的网格属性。
+- Stage 9 导出前会通过 RE6 Model Editor 把普通网格设置为 `IASkinTB4wt`，
+  把脸部网格设置为 `IASkinTB1wt`，并检查每个网格保存后的属性。脸部材质
+  来自 `settings.export.face_material_names`，未配置时使用 Stage 1 的
+  面部法向材质列表。
 - Stage 9 会重新解析并验证 MOD、MRL、CTC、贴图、材质哈希和文件位置。
 
 ## 常见问题
