@@ -29,6 +29,7 @@ import re6_target_skeleton
 BONE_PREFIX = "RE6Bone_"
 MOD_COLLECTION_TYPE = "RE6_MOD_COLLECTION"
 CTC_COLLECTION_TYPE = "RE6_CTC_COLLECTION"
+CHAIN_DAMPING = 0.02
 
 
 def parse_args() -> argparse.Namespace:
@@ -197,7 +198,7 @@ def create_chain_with_plugin(
     collision_shape = int(node_config.get("collision_shape", 1))
     chain = ctc_core.Chain(
         colGroup=int(chain_config.get("col_group", 1)),
-        damping=float(chain_config.get("damping", 0.02)),
+        damping=CHAIN_DAMPING,
         limitForce=float(chain_config.get("limit_force", 100.0)),
     )
     nodes = []
@@ -459,6 +460,11 @@ def main() -> int:
             "angle_limit_end_degrees": angle_end,
             "collision_radius": collision_radius,
             "collision_shape": collision_shape,
+        },
+        "chain_settings": {
+            "damping": CHAIN_DAMPING,
+            "limit_force": float(chain_config.get("limit_force", 100.0)),
+            "col_group": int(chain_config.get("col_group", 1)),
         },
     }
     write_json(report_path, report)
